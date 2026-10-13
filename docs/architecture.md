@@ -105,7 +105,7 @@ Pure-asyncio; can be driven from HA or from `debug.py` without changes.
 | `root_discovery.py` | Native UDP root protocol on port 9253. |
 | `network.py` | Socket plumbing, packet routing, NAT timers. |
 | `ice.py` + `sdp.py` | Candidate gathering + SDP parsing (relay implicit in `m=audio`). |
-| `relay_probe.py` | TURN allocation, permissions, channel binding. |
+| `relay_probe.py` | Native SDK TCP relay probe (port 9371), sent in the background so it never delays live-start. |
 | `lan.py` | Direct-LAN punch (plaintext msgsvr "connect" to host candidates). |
 | `kcp_tunnel.py` (sibling under `cloudplus/`) | KCP reliable transport over UDP. |
 | `protocol.py` | IVA framing (`0x7010` / `0x7012`). |

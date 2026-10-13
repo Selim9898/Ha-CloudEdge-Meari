@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
+import time
+from collections.abc import Callable, Sequence
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(f"{__package__}.engine")
 
 _MAGIC = 0xE6
 _TAIL = 0x9D
@@ -50,3 +53,55 @@ def probe_relay(host: str, tag: str) -> bool:
             sock.close()
         except OSError:
             pass
+
+
+def probe_relay_hosts(hosts: Sequence[str], tag: str) -> bool:
+    """Probe each relay host in order and stop at the first positive reply."""
+    for host in hosts:
+        if probe_relay(host, tag):
+            return True
+    return False
+
+
+def start_relay_probe(
+    hosts: Sequence[str],
+    tag: str,
+    *,
+    on_done: Callable[[bool], None] | None = None,
+) -> threading.Thread | None:
+    """Send the relay probe in the background instead of blocking live start.
+
+    The probe result never gates the media path: TURN permissions, channel
+    binds and ``START_LIVE`` proceed regardless of it. When the relay accepts
+    the TCP connection but never answers, a synchronous probe waits out every
+    receive timeout on each host (IP + hostname of the same relay), which
+    delays the first video frame by ~10 s. The same probe frames are still
+    sent; only the wait is taken off the startup path.
+    """
+    hosts = [str(host).strip() for host in hosts if str(host or "").strip()]
+    if not hosts:
+        return None
+
+    def _run() -> None:
+        started = time.monotonic()
+        probe_ok = False
+        try:
+            probe_ok = probe_relay_hosts(hosts, tag)
+        finally:
+            _LOGGER.debug(
+                "TURN relay probe %s for %s tag=%s (%.1fs, background)",
+                "ok" if probe_ok else "failed",
+                ", ".join(hosts),
+                tag,
+                time.monotonic() - started,
+            )
+            if on_done is not None:
+                on_done(probe_ok)
+
+    thread = threading.Thread(target=_run, name="cloudplus-relay-probe", daemon=True)
+    try:
+        thread.start()
+    except RuntimeError as err:
+        _LOGGER.warning("TURN relay probe could not start: %s", err)
+        return None
+    return thread

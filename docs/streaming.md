@@ -33,6 +33,21 @@ The engine therefore sends `kcp.send_handshake()` and a `START_LIVE` (reason
 `live_started = True` is set immediately so the keepalive and idle-retry
 paths take over from there.
 
+### The TURN relay probe must not block live-start
+
+Before media starts, the native SDK sends a short TCP probe to the TURN host
+(port 9371, see `relay_probe.py`). Its result never gates the media path:
+permissions, channel binds and `START_LIVE` proceed whether it succeeds or
+not. Some relays accept the TCP connection but never answer; a synchronous
+probe then waits out all four receive timeouts on each probed host (the relay
+IP and its hostname, usually the same server), stalling the first video frame
+by ~10 s even though media then flows through that same relay within
+milliseconds. The engine therefore sends the identical probe frames from a
+background thread (`start_relay_probe`) and continues immediately; the
+`TURN relay probe ok|failed` log line is emitted when the probe finishes.
+If the probe thread cannot start, the engine logs the failure and continues
+without the optional probe rather than aborting media startup.
+
 Legacy `deviceP2P=ppcs` cameras have no KCP/IVA handshake. Once PPCS confirms
 the direct peer, the engine sends the same VVP `START_LIVE` immediately on
 reliable channel 0. Its authentication omits the modern licence component;

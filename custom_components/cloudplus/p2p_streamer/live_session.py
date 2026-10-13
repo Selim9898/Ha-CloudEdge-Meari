@@ -45,7 +45,7 @@ from .protocol import (
     build_vvp_packet,
     format_licence_id,
 )
-from .relay_probe import probe_relay
+from .relay_probe import start_relay_probe
 from .keepalive import SnapDeviceKeepalive
 from .session_support import (
     AUTH_FALLBACK_NO_VIDEO_S,
@@ -156,17 +156,8 @@ class LiveSessionMixin:
             host = str(host or "").strip()
             if host and host not in probe_hosts:
                 probe_hosts.append(host)
-        probe_ok = False
-        for probe_host in probe_hosts:
-            probe_ok = probe_relay(probe_host, offer_tag)
-            if probe_ok:
-                break
-        _LOGGER.debug(
-            "TURN relay probe %s for %s tag=%s",
-            "ok" if probe_ok else "failed",
-            ", ".join(probe_hosts) or "unknown",
-            offer_tag,
-        )
+        # The probe result never gates media; send it without blocking startup.
+        start_relay_probe(probe_hosts, offer_tag)
         self._last_candidate_count = len(camera_candidates)
         lan_connect_frame = build_lan_connect_frame()
         lan_connect_endpoints = (
