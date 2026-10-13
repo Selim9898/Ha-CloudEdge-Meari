@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(f"{__package__}.engine")
 
 _MAGIC = 0xE6
 _TAIL = 0x9D
@@ -99,5 +99,9 @@ def start_relay_probe(
                 on_done(probe_ok)
 
     thread = threading.Thread(target=_run, name="cloudplus-relay-probe", daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except RuntimeError as err:
+        _LOGGER.warning("TURN relay probe could not start: %s", err)
+        return None
     return thread

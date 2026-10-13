@@ -45,6 +45,8 @@ by ~10 s even though media then flows through that same relay within
 milliseconds. The engine therefore sends the identical probe frames from a
 background thread (`start_relay_probe`) and continues immediately; the
 `TURN relay probe ok|failed` log line is emitted when the probe finishes.
+If the probe thread cannot start, the engine logs the failure and continues
+without the optional probe rather than aborting media startup.
 
 Legacy `deviceP2P=ppcs` cameras have no KCP/IVA handshake. Once PPCS confirms
 the direct peer, the engine sends the same VVP `START_LIVE` immediately on
