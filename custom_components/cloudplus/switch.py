@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -40,6 +42,8 @@ from .meari_commands import (
     SOUND_DET_ENABLE,
     SOUND_SWITCH,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -138,6 +142,8 @@ async def async_setup_entry(
         entities.append(CloudEdgeMeariMotionWakeSwitch(coord, entry))
     if coord.has_lamp:
         entities.append(CloudEdgeMeariLampSwitch(coord, entry))
+    else:
+        _add_lamp_switch_when_reported(coord, entry, async_add_entities)
     entities.extend(
         CloudEdgeMeariIotSwitch(coord, entry, spec)
         for spec in IOT_SWITCHES
@@ -145,6 +151,44 @@ async def async_setup_entry(
         or coord.has_iot_code(spec.code)
     )
     async_add_entities(entities)
+
+
+def _add_lamp_switch_when_reported(
+    coord: CloudEdgeMeariCoordinator,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add the Lamp switch once the camera first reports its lamp value.
+
+    The IoT config read during setup can come back without the lamp code (or
+    fail), even on a floodlight camera; the coordinator's status poll picks it
+    up later, but by then the platform has been set up. Without this the switch
+    would stay missing until the config entry is reloaded.
+    """
+    unsub: Callable[[], None] | None = None
+
+    @callback
+    def _check_lamp() -> None:
+        nonlocal unsub
+        if unsub is None or not coord.has_lamp:
+            return
+        unsub()
+        unsub = None
+        _LOGGER.debug(
+            "Lamp reported for %s after setup; adding the Lamp switch",
+            coord.device_name,
+        )
+        async_add_entities([CloudEdgeMeariLampSwitch(coord, entry)])
+
+    @callback
+    def _stop_waiting() -> None:
+        nonlocal unsub
+        if unsub is not None:
+            unsub()
+            unsub = None
+
+    unsub = coord.register_update_callback(_check_lamp)
+    entry.async_on_unload(_stop_waiting)
 
 
 class CloudEdgeMeariIotSwitch(CloudEdgeMeariIotEntity, SwitchEntity):
