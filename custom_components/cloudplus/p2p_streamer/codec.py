@@ -168,6 +168,61 @@ def decrypt_stream_frame(data: bytearray) -> bytearray:
     return data
 
 
+def encrypt_stream_frame(data: bytearray) -> bytearray:
+    """Encrypt an audio frame the way the camera and app do (mirror of decrypt).
+
+    3DES-ECB with the static stream key over whole 8-byte blocks from 0x28;
+    a trailing partial block stays plain.
+    """
+    enc_offset = AUDIO_HEADER_COMPACT
+    enc_len = ((len(data) - enc_offset) // 8) * 8
+    if enc_len < 8:
+        return data
+    data[enc_offset : enc_offset + enc_len] = _stream_cipher().encrypt(
+        bytes(data[enc_offset : enc_offset + enc_len])
+    )
+    return data
+
+
+def build_talk_audio_frame(ulaw: bytes, seq: int) -> bytes:
+    """Build one talk uplink frame, byte-exact with the ieGeek app.
+
+    Extended audio header (0x34 bytes) + G.711 u-law payload, encrypted from
+    0x28. Sent as a raw KCP payload (not IVA-wrapped). The app leaves both
+    timestamps 0 and counts ``seq`` app-wide across talk sessions.
+    """
+    header = bytearray(AUDIO_HEADER_EXTENDED)
+    header[0:4] = b"\x00\x00\x01" + bytes([STREAM_TYPE_AUDIO])
+    struct.pack_into("<H", header, 0x06, AUDIO_HEADER_EXTENDED + len(ulaw) - 8)
+    struct.pack_into("<I", header, 0x08, seq & 0xFFFFFFFF)
+    struct.pack_into("<I", header, 0x14, 0x82)
+    struct.pack_into("<I", header, 0x18, STREAM_TYPE_AUDIO)
+    struct.pack_into("<I", header, 0x20, 16)
+    struct.pack_into("<I", header, 0x24, 1)
+    struct.pack_into("<I", header, 0x30, len(ulaw))
+    return bytes(encrypt_stream_frame(bytearray(header + bytes(ulaw))))
+
+
+_ULAW_BIAS = 0x84
+_ULAW_CLIP = 32635
+
+
+def _linear_to_ulaw(sample: int) -> int:
+    sign = 0
+    if sample < 0:
+        sign = 0x80
+        sample = -sample
+    sample = min(sample, _ULAW_CLIP) + _ULAW_BIAS
+    exponent = max(0, min(7, sample.bit_length() - 8))
+    mantissa = (sample >> (exponent + 3)) & 0x0F
+    return ~(sign | (exponent << 4) | mantissa) & 0xFF
+
+
+def pcm16_to_ulaw(samples) -> bytes:
+    """Encode signed 16-bit PCM samples to G.711 u-law (audioop is gone)."""
+    return bytes(_linear_to_ulaw(int(sample)) for sample in samples)
+
+
 def _find_stream_start(data: bytes, start: int = 0) -> int:
     i = max(0, start)
     while i + 3 < len(data):

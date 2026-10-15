@@ -11,7 +11,16 @@ VVP_MAGIC = 0x56565099
 VVP_CMD_START_LIVE = 0x11FF
 VVP_CMD_STOP = 0x12FF
 VVP_CMD_HEARTBEAT = 0x888E
+# Talk (phone mic -> camera speaker), from the ieGeek app capture: open and
+# close are plain 60-byte VVPs (param 8, channel 0, stream 0, flag 0).
+VVP_CMD_TALK_OPEN = 0x1350
+VVP_CMD_TALK_CLOSE = 0x1351
 VVP_HEADER_SIZE = 60
+
+# One talk uplink frame: 320 bytes of G.711 u-law, 8 kHz mono = 40 ms.
+TALK_FRAME_BYTES = 320
+TALK_FRAME_INTERVAL_S = 0.04
+TALK_SAMPLE_RATE = 8000
 
 STREAM_TYPE_INFO = 0xF9
 STREAM_TYPE_AUDIO = 0xFA

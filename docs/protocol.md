@@ -201,6 +201,8 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
   - `0x11ff` — start live
   - `0x12ff` — stop live
   - `0x888e` — heartbeat
+  - `0x1350` / `0x1351` — talk open / close (param 8, channel 0, stream id 0,
+    flag 0; the app keeps VVP and IVA heartbeats going during talk)
 - Modern `START_LIVE` uses parameter `8`, the camera host key, a formatted
   licence ID, a stream id, and the app-profile stream flag (`0` CloudEdge and
   Arenti / `1` ANRAN, CloudPlus, ieGeek and BoifunCam; see
@@ -215,6 +217,33 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
     default to `1`, matching the official app
 - **AUTO is not our own adaptive switch.** It's the camera/app adaptive
   stream id; request it exactly as the official app does.
+
+## Talk uplink (KCP path)
+
+Decoded from an ieGeek app capture (H.264 snap camera, KCP, LAN direct);
+fixtures in `tests/fixtures/talk/` (auth MD5 zeroed).
+
+- Talk happens only inside a running live view, on the same KCP
+  conversation and sequence space as control.
+- Open with VVP `0x1350`, close with `0x1351` (IVA `0x7010` wrapped, built
+  by `build_vvp_packet`). The camera sends no VVP reply; camera audio keeps
+  flowing during talk (effectively full duplex).
+- Each audio frame is its own KCP PUSH, **raw** (not IVA-wrapped), 372
+  bytes: the extended `0xFA` audio header (`0x34` bytes) + 320 bytes of
+  G.711 µ-law, 8 kHz mono (40 ms). 25 frames/s; the app packs up to 3
+  segments per datagram. First frame ~0.65 s after open, last ~0.2 s
+  before close.
+- Header (little-endian): `00 00 01 fa`, flags `00 00`, `u16` frame length
+  − 8 at `0x06`, `u32` seq at `0x08` (+1 per frame, **app-wide**, continues
+  across talk sessions), `0x82` at `0x14`, `0xfa` at `0x18`, `16` at `0x20`,
+  `1` at `0x24`, timestamps at `0x28` / `0x2c` left `0`, payload length
+  (`320`) at `0x30`.
+- Encrypted like camera audio: 3DES-ECB with the static stream key over
+  whole 8-byte blocks from `0x28` (the last 4 bytes stay plain).
+  `codec.build_talk_audio_frame` reproduces all captured frames
+  byte-for-byte. No HTTP `/devices/voicetalk` request is used.
+- PPCS cameras use different talk framing (32-byte record on channel 1)
+  and are not supported yet.
 
 ## Media frames
 

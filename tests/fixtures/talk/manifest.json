@@ -1,0 +1,66 @@
+{
+ "source": "cloudedge-220528.pcap, session 2 (direct LAN, KCP conv 0x0c)",
+ "sanitized": "VVP auth md5 (bytes 0x10..0x2f of each VVP) zeroed; no tokens, keys or account ids",
+ "files": {
+  "iva_7012_heartbeat.bin": {
+   "len": 20,
+   "kcp_sn": 0,
+   "note": "KCP payload: 20-byte IVA handshake used as 3.1 s heartbeat"
+  },
+  "vvp_11ff_start_live.bin": {
+   "len": 80,
+   "kcp_sn": 1,
+   "vvp_seq": 23,
+   "note": "KCP payload = IVA 0x7010 (20 B) + VVP (60 B), auth zeroed"
+  },
+  "vvp_888e_heartbeat.bin": {
+   "len": 80,
+   "kcp_sn": 5,
+   "vvp_seq": 24,
+   "note": "KCP payload = IVA 0x7010 (20 B) + VVP (60 B), auth zeroed"
+  },
+  "vvp_1350_talk_open.bin": {
+   "len": 80,
+   "kcp_sn": 91,
+   "vvp_seq": 46,
+   "note": "KCP payload = IVA 0x7010 (20 B) + VVP (60 B), auth zeroed"
+  },
+  "vvp_1351_talk_close.bin": {
+   "len": 80,
+   "kcp_sn": 228,
+   "vvp_seq": 48,
+   "note": "KCP payload = IVA 0x7010 (20 B) + VVP (60 B), auth zeroed"
+  },
+  "iva_7012_camera_echo.bin": {
+   "len": 20,
+   "kcp_sn": 0,
+   "note": "camera echoes the same IVA ids ~10 ms later"
+  },
+  "talk_uplink_frames_5x372.bin": {
+   "len": 1860,
+   "frame_len": 372,
+   "count": 5,
+   "first_kcp_sn": 92,
+   "first_frame_seq": 409,
+   "note": "00 00 01 fa extended audio header (0x34) + 320 B G.711 u-law; bytes 0x28..0x16f 3DES-ECB(static key)"
+  },
+  "talk_udp_datagram_3seg.bin": {
+   "len": 1188,
+   "segs": [
+    92,
+    93,
+    94
+   ],
+   "note": "one UDP payload = 3 concatenated KCP PUSH segments (24 B hdr + 372 B frame)"
+  },
+  "camera_audio_frames_2x372.bin": {
+   "len": 744,
+   "frame_len": 372,
+   "count": 2,
+   "note": "downlink audio, same layout; ts at 0x28, unix seconds at 0x2c"
+  },
+  "app_control_schedule.json": {
+   "note": "every app->camera control message in session 2, t relative to IVA handshake"
+  }
+ }
+}
