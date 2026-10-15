@@ -113,7 +113,11 @@ old 45 s window).
 The `0x888E` VVP heartbeat keeps the **P2P session** alive. Native QHD HEVC
 captures send one startup `START_LIVE`, then VVP heartbeats, then `STOP_LIVE`;
 they do not proactively send `START_LIVE` while video is flowing. Re-sending it
-mid-flow can make WAN relay sessions go silent on this camera.
+mid-flow can make WAN relay sessions go silent on this camera. A capture of
+the ieGeek app on an H.264 snap camera (3 min 47 s of live, LAN direct) shows
+the same: one `START_LIVE` at start, one more only for a quality switch, and
+none as keep-alive. H.264 therefore no longer re-sends it every 30 s
+(`start_live_keepalive_s = 0` for both codecs).
 
 The integration therefore:
 

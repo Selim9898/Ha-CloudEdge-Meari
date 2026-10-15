@@ -25,6 +25,9 @@ RUNTIME_POLICY = CodecRuntimePolicy(
     fast_quiet_cap_s=1.25,
     runtime_stall_timeout_s=14.0,
     source_idle_reconnect_s=14.0,
+    # The official ieGeek app sends START_LIVE once per H.264 session (plus a
+    # quality switch), never as a keep-alive.
+    start_live_keepalive_s=0.0,
     preferred_backlog_reasons=frozenset({"ready", "seed-not-fresh"}),
     preferred_backlog_min_frames=2,
     preferred_backlog_max_video_age_s=0.8,
