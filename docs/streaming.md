@@ -329,6 +329,35 @@ a stretch looked like a 30 s gap and reset the cap. A session's clock
 starts when the client connected, but never before the previous session
 ended.
 
+## Talk
+
+Talk (HA → camera speaker) rides the running live session; wire format in
+[protocol.md](protocol.md#talk-uplink-kcp-path).
+
+- **Queue only from outside the loop.** `TalkChannel`
+  (`p2p_streamer/talk.py`) lives on the coordinator and is handed to each
+  `P2PStreamer`; HA calls `begin` / `push` / `stop` (the streamer exposes
+  the same as `talk_start` / `talk_push` / `talk_stop`). The live loop,
+  which owns the socket and the non-thread-safe `KcpTunnel`, calls
+  `drain()` right after the VVP heartbeat block: it sends `0x1350`, then
+  frames paced at 40 ms (`TALK_OPEN_LEAD_S` 0.3 s after open, at most 3
+  frames per iteration, resync instead of bursting after a stall), then
+  `0x1351` once the queue is empty after a stop.
+- **Never left open.** A talk session stops after `TALK_IDLE_TIMEOUT_S`
+  (2 s) without audio to send and after `TALK_MAX_S` (60 s) at most. A
+  session ending (reconnect, stop) sends `0x1351` if talk was open; a talk
+  still wanted re-opens on the next session. The frame sequence lives on
+  the channel, so it continues across sessions like the app's.
+- **Live first.** `async_talk_start` wakes the camera if it is not live (the
+  normal wake window) and waits up to 45 s for live frames before opening.
+  While talking, the live window is held `TALK_LIVE_LINGER_S` (5 s) past
+  the queued audio, and that live time is charged to the wake-when-watched
+  budget like watching. A capped watch session does not block talk (it is
+  an explicit action), but talk uses up the hour's budget.
+- Talk frames are sent with a 1 s KCP expiry so late audio is dropped, not
+  retransmitted (see protocol.md, KCP).
+- PPCS cameras and cameras whose capability says `vtk` 0 or 2 are refused.
+
 ## Timing rules
 
 - Camera timestamps can be unstable across stalls, especially with HEVC and

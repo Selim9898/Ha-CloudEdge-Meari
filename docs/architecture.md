@@ -86,6 +86,7 @@ unsupported choices and out-of-range number writes are rejected locally.
 | `__init__.py` | Lifecycle, IoT cache, wake retry loop, video pipeline glue. |
 | `state.py` | Awake (reported vs. internal session gate) / battery / charge state, wake requests, event fan-out. |
 | `motion.py` | Translates raw MQTT alarms into HA binary-sensor pulses. |
+| `talk.py` | Talk session lifecycle: wake and wait for live, keep live while talking, charge the watch budget. |
 | `idle.py` | Idle still loop: repeats the last keyframe while a snap camera sleeps (and covers watched stalls). |
 | `watch_wake.py` | Wake when watched: viewing sessions on the stream server extend the snap live window, with a per-session cap. |
 | `iot.py` | Capability parsing and feature checks, IoT value normalization/lookups. |
@@ -113,7 +114,8 @@ Pure-asyncio; can be driven from HA or from `debug.py` without changes.
 | `protocol.py` | IVA framing (`0x7010` / `0x7012`). |
 | `codec.py` | VVP packet codec (magic `0x56565099`). |
 | `quality.py` | Quality-profile → stream-id mapping (modern AUTO/profile ids and raw legacy ids). |
-| `keepalive.py` | `0x888E` heartbeat + proactive `START_LIVE` re-issue. |
+| `keepalive.py` | Snap IoT poll and the MsgSvr live keep-alives (heartbeat, webrtc hello 21 s, status 120 s). |
+| `talk.py` | `TalkChannel`: thread-safe talk queue drained by the live loop (open, 40 ms frames, close, auto-stop); tone generator. |
 
 ## Sibling protocol modules
 

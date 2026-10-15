@@ -40,11 +40,14 @@ from .protocol import (
     VVP_CMD_HEARTBEAT,
     VVP_CMD_STOP,
     VVP_CMD_START_LIVE,
+    VVP_CMD_TALK_CLOSE,
+    VVP_CMD_TALK_OPEN,
     STREAM_TYPE_IFRAME,
     build_vvp_packet,
     format_licence_id,
 )
 from .relay_probe import start_relay_probe
+from .talk import TALK_FRAME_EXPIRE_S
 from .keepalive import SignalingKeepalive, SnapDeviceKeepalive
 from .session_support import (
     AUTH_FALLBACK_NO_VIDEO_S,
@@ -323,6 +326,17 @@ class LiveSessionMixin:
             kcp.flush_acks()
 
         self._active_stop_live = _send_stop_live
+        talk = self._talk
+
+        def _talk_open() -> None:
+            kcp.send_iva_data(_next_vvp(VVP_CMD_TALK_OPEN, stream_id=0, stream_flag=0))
+
+        def _talk_close() -> None:
+            kcp.send_iva_data(_next_vvp(VVP_CMD_TALK_CLOSE, stream_id=0, stream_flag=0))
+
+        def _talk_frame(frame: bytes) -> None:
+            # Raw KCP payload (not IVA-wrapped), dropped from retransmit late.
+            kcp.send_data(frame, expire_s=TALK_FRAME_EXPIRE_S)
 
         def _send_ice_checks() -> None:
             for cand in camera_candidates:
@@ -633,6 +647,8 @@ class LiveSessionMixin:
         _send_start_live("startup", now)
         last_iva_heartbeat = now + IVA_HEARTBEAT_S
         ice_aggressive_deadline = now + DIRECT_ICE_SEEK_WINDOW_S
+        if talk is not None:
+            talk.session_ended()  # a new session: re-open a wanted talk on it
 
         while self._running:
             now = time.time()
@@ -679,6 +695,9 @@ class LiveSessionMixin:
                     _next_vvp(VVP_CMD_HEARTBEAT, stream_id=0, stream_flag=0)
                 )
                 last_heartbeat = now + VVP_HEARTBEAT_S
+
+            if talk is not None and live_started:
+                talk.drain(_talk_open, _talk_close, _talk_frame)
 
             keepalive_s = runtime_policy_for(self._video_codec).start_live_keepalive_s
             if (
@@ -728,6 +747,8 @@ class LiveSessionMixin:
                 return (self._video_count, self._total_bytes)
 
         try:
+            if talk is not None:
+                talk.session_ended(_talk_close)
             _send_stop_live()
         except OSError:
             pass

@@ -61,6 +61,7 @@ from .ppcs import (
 )
 from .quality import stream_id_for_quality
 from .live_session import LiveSessionMixin
+from .talk import TalkChannel, TalkStreamerMixin
 from .session_support import (
     AUTH_FALLBACK_RESULT,
     DORMANCY_WAKE_TIMEOUT_S,
@@ -82,7 +83,7 @@ _PPCS_FRAME_TYPES = {
 }
 
 
-class P2PStreamer(LiveSessionMixin):
+class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
     """Run a Meari stream over its advertised WebRTC or legacy PPCS path."""
 
     def __init__(
@@ -98,8 +99,10 @@ class P2PStreamer(LiveSessionMixin):
         vvp_quality: int | None = None,
         video_password: str | None = None,
         client_id: Any = None,
+        talk: TalkChannel | None = None,
     ) -> None:
         self._api = api
+        self._talk = talk  # drained by the KCP live loop only (not PPCS)
         self._device = device
         self._sn_num = device["snNum"]
         self._device_uuid = str(device.get("deviceUUID") or "").strip()

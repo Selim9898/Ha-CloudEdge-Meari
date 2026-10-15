@@ -45,6 +45,7 @@ from .motion import MotionEventListener
 from .muxer import FfmpegMuxer
 from .state import CoordinatorStateMixin
 from .stream_server import StreamServer
+from .talk import TalkMixin
 from .watch_wake import WatchWakeMixin
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ SNAPSHOT_CARD_REQUEST_TTL = 30.0
 
 
 class CloudEdgeMeariCoordinator(
-    WatchWakeMixin, IdleStillMixin, CoordinatorStateMixin
+    TalkMixin, WatchWakeMixin, IdleStillMixin, CoordinatorStateMixin
 ):
     """Small runtime coordinator used by debug.py and camera entity."""
 
@@ -192,6 +193,7 @@ class CloudEdgeMeariCoordinator(
         quality_setting = entry.options.get(CONF_STREAM_QUALITY) if entry else None
         self._vvp_quality: int | None = parse_quality_setting(device, quality_setting)
         self._init_watch_wake(entry.options if entry else None)
+        self._init_talk()
         self._codec_params = CodecParameterCache()
         self._stream_started_keyframe = False
 
@@ -211,6 +213,7 @@ class CloudEdgeMeariCoordinator(
 
     async def async_stop(self) -> None:
         self._running = False
+        self._talk.stop("coordinator stopped")
         await self._run_blocking(self._stop_blocking)
         self._available = False
         self._set_session_active(False)
@@ -804,6 +807,7 @@ class CloudEdgeMeariCoordinator(
                 vvp_quality=self._stream_quality(),
                 video_password=self._video_password,
                 client_id=self.get_iot_value(1),
+                talk=self._talk,
             )
             self._p2p_streamer = streamer
             try:
