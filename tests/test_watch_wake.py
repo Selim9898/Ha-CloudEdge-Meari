@@ -486,6 +486,57 @@ class StallStillTests(unittest.TestCase):
         self.assertEqual(self.run_idle_loop(), 0)
 
 
+class DeadlineThreadSafetyTests(unittest.TestCase):
+    """The deadline and budget are written from the HA loop and from threads."""
+
+    def test_deadline_never_moves_earlier(self) -> None:
+        coord = coordinator()
+        coord._raise_live_deadline(T0 + 100)
+        coord._raise_live_deadline(T0 + 50)
+        self.assertEqual(coord._live_deadline, T0 + 100)
+        self.assertEqual(coord._grant_live(T0, T0 + 80), 0.0)
+        self.assertEqual(coord._live_deadline, T0 + 100)
+        self.assertEqual(coord._grant_live(T0, T0 + 130), 30.0)
+        self.assertEqual(coord._live_deadline, T0 + 130)
+
+    def test_concurrent_grants_and_budget_reads(self) -> None:
+        coord = coordinator()
+        errors: list[BaseException] = []
+        seen: list[float] = []
+        stop = threading.Event()
+
+        def writer(offset: float) -> None:
+            try:
+                step = 0
+                while not stop.is_set():
+                    step += 1
+                    now = time.monotonic()
+                    # Disjoint spans so the grants deque keeps growing.
+                    coord._watch.grant(offset + step * 10.0, offset + step * 10.0 + 1.0)
+                    coord._grant_live(now, now + 0.001 * step)
+            except BaseException as exc:  # pylint: disable=broad-exception-caught
+                errors.append(exc)
+
+        def reader() -> None:
+            try:
+                while not stop.is_set():
+                    coord._watch.used(time.monotonic() + 7200.0)  # pops old spans
+                    seen.append(coord._live_deadline)
+            except BaseException as exc:  # pylint: disable=broad-exception-caught
+                errors.append(exc)
+
+        threads = [threading.Thread(target=writer, args=(o,)) for o in (0.0, 1e6)]
+        threads.append(threading.Thread(target=reader))
+        for worker in threads:
+            worker.start()
+        time.sleep(0.5)
+        stop.set()
+        for worker in threads:
+            worker.join(timeout=2)
+        self.assertEqual(errors, [])
+        self.assertEqual(seen, sorted(seen))  # never observed moving earlier
+
+
 class StreamServerClientCountTests(unittest.TestCase):
     def test_closed_viewer_leaves_the_count_without_any_broadcast(self) -> None:
         server = STREAM_SERVER.StreamServer()

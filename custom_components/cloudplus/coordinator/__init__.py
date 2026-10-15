@@ -332,9 +332,8 @@ class CloudEdgeMeariCoordinator(
             self._consume_wake_event()
             self._update_watch_wake(time.monotonic())
             if self._motion_detected and self._motion_wake_enabled:
-                self._live_deadline = max(
-                    self._live_deadline,
-                    self._last_motion_time + float(self._motion_timeout),
+                self._raise_live_deadline(
+                    self._last_motion_time + float(self._motion_timeout)
                 )
 
             if now < self._live_deadline:

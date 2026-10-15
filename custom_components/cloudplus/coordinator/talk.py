@@ -79,8 +79,4 @@ class TalkMixin:
     def _keep_live_for_talk(self) -> None:
         """Hold the live window past the queued audio; charge the budget."""
         now = time.monotonic()
-        target = now + self._talk.queued_s + TALK_LIVE_LINGER_S
-        grant_from = max(self._live_deadline, now)
-        if target > grant_from:
-            self._watch.grant(grant_from, target)
-            self._live_deadline = target
+        self._grant_live(now, now + self._talk.queued_s + TALK_LIVE_LINGER_S)

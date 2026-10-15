@@ -278,7 +278,11 @@ to be live:
   options save or entry reload (which rebuilds the coordinator and the
   stream server) does not re-arm the cap. An HA restart does.
 - Motion and the Wake button keep their own windows; wake when watched only
-  ever extends, never shortens, the deadline.
+  ever extends, never shortens, the deadline. All deadline writers (snap
+  loop, live loop, Wake and talk from the HA event loop) go through
+  `_raise_live_deadline` / `_grant_live` under one lock, so the deadline only
+  moves later and a budget charge and its deadline change are atomic; the
+  budget's span list has its own lock.
 - `live_until` reports the cap (or budget) end while a viewer keeps
   watching.
 

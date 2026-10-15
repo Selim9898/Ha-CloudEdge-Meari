@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -29,6 +30,9 @@ _LOGGER = logging.getLogger(__name__)
 AWAKE_LIVE_FRAME_TIMEOUT_S = 10.0
 # Only re-publish live_until when the planned end moves by more than this.
 LIVE_UNTIL_REPORT_STEP_S = 1.0
+# Guards _live_deadline (and the watch budget written with it): it is raised
+# from the HA event loop (Wake, talk) and from the coordinator threads.
+LIVE_DEADLINE_LOCK = threading.RLock()
 
 
 class CoordinatorStateMixin:
@@ -383,7 +387,12 @@ class CoordinatorStateMixin:
 
     def _extend_live_deadline(self, seconds: float | None = None) -> None:
         duration = float(seconds if seconds is not None else self._motion_timeout)
-        self._live_deadline = max(self._live_deadline, time.monotonic() + duration)
+        self._raise_live_deadline(time.monotonic() + duration)
+
+    def _raise_live_deadline(self, target: float) -> None:
+        """Move the live deadline later, never earlier (thread safe)."""
+        with LIVE_DEADLINE_LOCK:
+            self._live_deadline = max(self._live_deadline, target)
 
     def _note_motion(self, motion_type: str, event_image: bytes | None = None) -> None:
         if event_image:

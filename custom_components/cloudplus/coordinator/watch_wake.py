@@ -22,12 +22,14 @@ reconnect in a loop:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from .state import LIVE_DEADLINE_LOCK
 from ..const import (
     CONF_WATCH_WAKE,
     CONF_WATCH_WAKE_MAX_MINUTES,
@@ -80,19 +82,24 @@ class WatchState:
     last_seen: float = 0.0  # last time a client was known to be connected
     last_wake: float = float("-inf")
     grants: deque[list[float]] = field(default_factory=deque)
+    lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
+    )
 
     def used(self, now: float) -> float:
         """Watch-granted live seconds inside the rolling window."""
         horizon = now - WATCH_BUDGET_WINDOW_S
-        while self.grants and self.grants[0][1] <= horizon:
-            self.grants.popleft()
-        return sum(end - max(start, horizon) for start, end in self.grants)
+        with self.lock:
+            while self.grants and self.grants[0][1] <= horizon:
+                self.grants.popleft()
+            return sum(end - max(start, horizon) for start, end in self.grants)
 
     def grant(self, start: float, end: float) -> None:
-        if self.grants and start <= self.grants[-1][1]:
-            self.grants[-1][1] = max(self.grants[-1][1], end)
-        else:
-            self.grants.append([start, end])
+        with self.lock:
+            if self.grants and start <= self.grants[-1][1]:
+                self.grants[-1][1] = max(self.grants[-1][1], end)
+            else:
+                self.grants.append([start, end])
 
 
 class WatchWakeMixin:
@@ -242,10 +249,22 @@ class WatchWakeMixin:
         )
 
     def _extend_watch_window(self, now: float, cap_end: float) -> None:
-        state = self._watch
-        grant_from = max(self._live_deadline, now)
-        remaining = self._watch_budget_s() - state.used(now)
-        target = min(now + WATCH_WAKE_LINGER_S, cap_end, grant_from + remaining)
-        if target > grant_from:
-            state.grant(grant_from, target)
+        with LIVE_DEADLINE_LOCK:
+            grant_from = max(self._live_deadline, now)
+            remaining = self._watch_budget_s() - self._watch.used(now)
+            target = min(now + WATCH_WAKE_LINGER_S, cap_end, grant_from + remaining)
+            self._grant_live(now, target)
+
+    def _grant_live(self, now: float, target: float) -> float:
+        """Raise the live deadline to ``target`` and charge the budget.
+
+        Returns the seconds granted. Atomic with respect to every other
+        deadline writer (HA event loop and coordinator threads).
+        """
+        with LIVE_DEADLINE_LOCK:
+            grant_from = max(self._live_deadline, now)
+            if target <= grant_from:
+                return 0.0
+            self._watch.grant(grant_from, target)
             self._live_deadline = target
+            return target - grant_from
