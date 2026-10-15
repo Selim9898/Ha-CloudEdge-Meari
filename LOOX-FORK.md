@@ -32,6 +32,14 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `7963190` | refactor(coordinator): idle still loop moved to `coordinator/idle.py` | Talk PR (prep) |
 | `336cd8b` | feat(talk): queue-only talk API drained by the KCP live loop | Talk PR |
 | `c15776c` | feat(talk): admin-only websocket talk API and `talk_tone` service | Talk PR |
+| `8be1ea8` | docs: keep-alive status, stream-flag lever, talk test plan | Fork only |
+| `ddb14f7` | fix(stream): keep the 30 s START_LIVE resend on PPCS; drop it on KCP only | With `1117d94` |
+| `2e882a9` | fix(kcp): never drop unACKed segments; timer-driven resend | Talk PR |
+| `0032e60` | fix(talk): drop stale audio before KCP; never reopen talk for leftovers; report dropped frames | Talk PR |
+| `4ddc46f` | fix(watch-wake): lock deadline and budget writes; deadline only moves later | Fold into the wake-on-watch PR |
+| `99e1a0b` | fix(watch-wake): recovery wake when a watched live session stalls | Fold into the wake-on-watch PR |
+| `5399775` | fix(talk): budget refusal, 5 min talk per hour, 60 s per live view | Talk PR |
+| `e1b1d0b` | fix(signaling): read keep-alive replies whole or reset the connection | With `94e1ece` |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
@@ -84,7 +92,9 @@ Not changed yet, in order of what to try next if live still stops:
 ### Talk (to verify at the test home)
 
 Talk is implemented for KCP-path cameras from the same capture: VVP
-`0x1350` / `0x1351` and byte-exact 40 ms µ-law frames. Try it first with
+`0x1350` / `0x1351` and byte-exact 40 ms µ-law frames. Limits: 60 s per
+live view, 5 min of talk per hour, refused when the camera's hourly live
+budget is used up; audio more than 2 s late is dropped, never sent. Try it first with
 the admin service `cloudplus.talk_tone` (800 Hz, 2 s) while the camera is
 live, then the websocket API from a client (`cloudplus/talk/start`,
 `audio`, `stop`; see README). Raise the camera's Speaker Volume entity if
