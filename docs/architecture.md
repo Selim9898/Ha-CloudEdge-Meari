@@ -86,6 +86,7 @@ unsupported choices and out-of-range number writes are rejected locally.
 | `__init__.py` | Lifecycle, IoT cache, wake retry loop, video pipeline glue. |
 | `state.py` | Awake (reported vs. internal session gate) / battery / charge state, wake requests, event fan-out. |
 | `motion.py` | Translates raw MQTT alarms into HA binary-sensor pulses. |
+| `idle.py` | Idle still loop: repeats the last keyframe while a snap camera sleeps (and covers watched stalls). |
 | `watch_wake.py` | Wake when watched: viewing sessions on the stream server extend the snap live window, with a per-session cap. |
 | `iot.py` | Capability parsing and feature checks, IoT value normalization/lookups. |
 | `mpegts.py` + `muxer.py` | ffmpeg-based MPEG-TS muxer (video copy, audio encode). |
