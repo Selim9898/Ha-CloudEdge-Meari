@@ -108,6 +108,25 @@ The debug harness `--wake-timeout` default is 90 s to account for worst-case
 deep-dormancy wakes (a 25–45 s wake plus first-keyframe time can exceed the
 old 45 s window).
 
+## Keeping a live session alive
+
+On an ieGeek H.264 snap camera our live sessions ended on the camera side
+about 2 min 13 s after start while the viewer was still connected; the
+official app kept a session going for 3 min 47 s without a gap. The capture
+shows what the app sends while live and the engine now matches it
+(`p2p_streamer/keepalive.py`, ticked from the live loop):
+
+- IVA `0x7012` heartbeat every ~3 s and VVP `0x888E` every 10 s (unchanged).
+- MsgSvr heartbeat every 30 s (register `hb`, unchanged).
+- **Routed webrtc hello every 21 s** (`SIGNAL_HELLO_INTERVAL_S`). Before,
+  the engine said hello only once at setup. This is the leading suspect for
+  the 2-minute stop: the camera acts on webrtcsvr session state.
+- **Device status query every 120 s** (`SIGNAL_STATUS_INTERVAL_S`).
+- No periodic `START_LIVE` (see below) and no HTTP wake while live.
+
+All MsgSvr sends run on one short-lived worker; replies are read and
+dropped so the media loop never blocks on the TCP socket.
+
 ## Source-idle recovery (sustaining the stream)
 
 The `0x888E` VVP heartbeat keeps the **P2P session** alive. Native QHD HEVC

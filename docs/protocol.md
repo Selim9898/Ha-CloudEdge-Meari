@@ -101,6 +101,14 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
   identity returned by status: copy the keepalive IP/port/transport into a
   `node=dev`, `domain=<device UUID>` contact. The local-endpoint and
   `awaken_type=1` frames use distinct outer SIDs, matching official captures.
+- **While live**, the ieGeek app (6.2.3, capture of 3 min 47 s live) keeps
+  three things going on the MsgSvr connection: the heartbeat (`0xB1/0xC9`)
+  every 30 s, a routed webrtc `{"cmd":"hello"}` (`0xB2/0xC6`, `from` / `to`
+  webrtcsvr / `content` envelope, answered with a tag) every ~21 s, and a
+  device `status` query (`0xB1/0xC7`, keys `action`, `uuid`, `sid`) every
+  ~120 s. The camera reacts to webrtcsvr session state: after the app's
+  `logout` it reported `dormancy` within 2 s. The engine sends all three
+  (`SignalingKeepalive`).
 - Some newer shared snap cameras require **stable app-like client
   UUID/session values**. Randomising those can make the camera appear
   offline even when wake commands work.

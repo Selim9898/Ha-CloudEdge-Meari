@@ -98,6 +98,10 @@ class MsgSvrClient:
 
     def _send_webrtc(self, inner_json, to_webrtcsvr=True):
         """Send a webrtcsvr-routed message with base64-encoded content."""
+        self._send(*self._webrtc_frame(inner_json, to_webrtcsvr))
+
+    def _webrtc_frame(self, inner_json, to_webrtcsvr=True):
+        """Return (method, cmd, payload) for a webrtcsvr message."""
         content = base64.b64encode(
             json.dumps(inner_json, separators=(",", ":")).encode()
         ).decode()
@@ -124,7 +128,25 @@ class MsgSvrClient:
 
         msg["content"] = content
         method = METHOD_ROUTED if to_webrtcsvr and self.webrtcsvr else METHOD_DIRECT
-        self._send(method, CMD_WEBRTC, json.dumps(msg, separators=(",", ":")))
+        return method, CMD_WEBRTC, json.dumps(msg, separators=(",", ":"))
+
+    def _send_and_discard(self, method, cmd, payload_json, *, read_response=True):
+        """Send one frame and read (and drop) one reply, briefly."""
+        with self._io_lock:
+            self._send_unlocked(method, cmd, payload_json)
+            if not read_response or self.sock is None:
+                return
+            old_timeout = self.sock.gettimeout()
+            try:
+                self.sock.settimeout(1.0)
+                _recv_frame(self.sock)
+            except (OSError, ValueError):
+                pass
+            finally:
+                try:
+                    self.sock.settimeout(old_timeout)
+                except OSError:
+                    pass
 
     def recv_webrtc_content(self):
         """Receive a webrtcsvr response and decode the inner content."""
@@ -205,21 +227,34 @@ class MsgSvrClient:
             },
             separators=(",", ":"),
         )
-        with self._io_lock:
-            self._send_unlocked(METHOD_DIRECT, CMD_HEARTBEAT, msg)
-            if not read_response or self.sock is None:
-                return
-            old_timeout = self.sock.gettimeout()
-            try:
-                self.sock.settimeout(1.0)
-                _recv_frame(self.sock)
-            except (OSError, ValueError):
-                pass
-            finally:
-                try:
-                    self.sock.settimeout(old_timeout)
-                except OSError:
-                    pass
+        self._send_and_discard(
+            METHOD_DIRECT, CMD_HEARTBEAT, msg, read_response=read_response
+        )
+
+    def send_webrtc_keepalive(self, *, read_response: bool = False):
+        """Routed webrtc hello; the app sends it every ~21 s while live."""
+        if not self.uuid or not self.webrtcsvr:
+            return
+        self._send_and_discard(
+            *self._webrtc_frame({"cmd": "hello"}, to_webrtcsvr=True),
+            read_response=read_response,
+        )
+
+    def send_status_keepalive(self, device_uuid, *, read_response: bool = False):
+        """Device status query; the app repeats it every ~120 s while live."""
+        if not self.uuid:
+            return
+        msg = json.dumps(
+            {
+                "action": "status",
+                "uuid": device_uuid,
+                "sid": uuid_mod.uuid4().hex[:16],
+            },
+            separators=(",", ":"),
+        )
+        self._send_and_discard(
+            METHOD_DIRECT, CMD_STATUS, msg, read_response=read_response
+        )
 
     def webrtc_hello(self):
         """Step 2: Hello to webrtcsvr, get tag for later SDP exchange."""

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import os
 import socket
-import threading
 import time
 from typing import Any, Callable
 
@@ -46,7 +45,7 @@ from .protocol import (
     format_licence_id,
 )
 from .relay_probe import start_relay_probe
-from .keepalive import SnapDeviceKeepalive
+from .keepalive import SignalingKeepalive, SnapDeviceKeepalive
 from .session_support import (
     AUTH_FALLBACK_NO_VIDEO_S,
     AUTH_FALLBACK_RESULT,
@@ -243,11 +242,13 @@ class LiveSessionMixin:
         last_udp_time = 0.0
         last_kcp_push_time = 0.0
         last_kcp_payload_time = 0.0
-        signal_heartbeat_s = max(
-            5.0, float(getattr(sig, "heartbeat_interval_s", 30.0) or 30.0)
+        signal_keepalive = SignalingKeepalive(
+            sig,
+            device_uuid,
+            heartbeat_s=float(getattr(sig, "heartbeat_interval_s", 30.0) or 30.0),
+            start=time.time(),
+            name=f"cloudplus_signal_hb_{self._sn_num}",
         )
-        next_signal_heartbeat = time.time() + max(5.0, signal_heartbeat_s * 2.0 / 3.0)
-        signal_heartbeat_pending = [False]
         last_ack_probe = 0.0
         last_gap_nudge = 0.0
         last_gap_skip = 0.0
@@ -322,14 +323,6 @@ class LiveSessionMixin:
             kcp.flush_acks()
 
         self._active_stop_live = _send_stop_live
-
-        def _send_signal_heartbeat() -> None:
-            try:
-                sig.send_heartbeat(read_response=True)
-            except (OSError, ValueError):
-                _LOGGER.debug("Signaling heartbeat failed", exc_info=True)
-            finally:
-                signal_heartbeat_pending[0] = False
 
         def _send_ice_checks() -> None:
             for cand in camera_candidates:
@@ -664,15 +657,7 @@ class LiveSessionMixin:
                 )
             snap_keepalive.tick()
 
-            if now >= next_signal_heartbeat:
-                if not signal_heartbeat_pending[0]:
-                    signal_heartbeat_pending[0] = True
-                    threading.Thread(
-                        target=_send_signal_heartbeat,
-                        name=f"cloudplus_signal_hb_{self._sn_num}",
-                        daemon=True,
-                    ).start()
-                next_signal_heartbeat = now + signal_heartbeat_s
+            signal_keepalive.tick(now)
 
             if self._keyframe_request.is_set():
                 self._keyframe_request.clear()
