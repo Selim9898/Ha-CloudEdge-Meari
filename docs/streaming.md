@@ -184,10 +184,14 @@ Reporting `camera_awake` from the wake request instead of from frames made
 the sensor say "awake" for a camera that was still asleep, and it could miss
 the live period entirely.
 
-The Camera Awake sensor carries a `live_until` attribute (ISO-8601 UTC, or
-`null`): when the current live window ends if nothing extends it. It is
-re-published only when that end moves by more than a second, so a client app
-can show a countdown without the state churning.
+The Camera Awake sensor carries a `live_until` attribute (ISO-8601 UTC in
+whole seconds, or `null`): when the current live window ends if nothing
+extends it. The snap loop works in monotonic time, so the wall-clock value
+is computed once, rounded to the second and stored (`_live_until_epoch`)
+when the planned end moves by more than a second, and re-published only
+then. Recomputing "wall now + monotonic remaining" on every state write
+produced a slightly different timestamp each time, so every unrelated
+update added a recorder row.
 
 ## Wake when watched
 

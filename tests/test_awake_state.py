@@ -162,6 +162,7 @@ class LiveUntilTests(unittest.TestCase):
 
     def test_tracks_the_live_deadline(self) -> None:
         self.coord.wake_camera()  # default window: the motion timeout
+        self.coord._refresh_camera_awake()
         live_until = self.coord.live_until
         self.assertIsNotNone(live_until)
         remaining = (live_until - datetime.now(timezone.utc)).total_seconds()
@@ -179,6 +180,31 @@ class LiveUntilTests(unittest.TestCase):
         self.coord._refresh_camera_awake()
         self.assertEqual(updates.call_count, 2)
 
+    def test_value_is_whole_seconds_and_stable_between_moves(self) -> None:
+        self.coord.wake_camera()
+        self.coord._refresh_camera_awake()
+        first = self.coord.live_until
+        self.assertEqual(first.microsecond, 0)
+        for _ in range(5):  # loop ticks while nothing moves the deadline
+            time.sleep(0.01)
+            self.coord._refresh_camera_awake()
+            self.assertEqual(self.coord.live_until, first)
+        self.coord._live_deadline += 0.5  # sub-second jitter is ignored
+        self.coord._refresh_camera_awake()
+        self.assertEqual(self.coord.live_until, first)
+        self.coord._live_deadline += 60
+        self.coord._refresh_camera_awake()
+        moved = (self.coord.live_until - first).total_seconds()
+        self.assertAlmostEqual(moved, 60, delta=1)
+
+    def test_cleared_when_the_live_window_ends(self) -> None:
+        self.coord.wake_camera()
+        self.coord._refresh_camera_awake()
+        self.assertIsNotNone(self.coord.live_until)
+        self.coord._set_session_active(False)
+        self.coord._refresh_camera_awake()
+        self.assertIsNone(self.coord.live_until)
+
     def test_awake_sensor_exposes_live_until(self) -> None:
         sensor = BINARY_SENSOR.CloudEdgeMeariAwakeSensor.__new__(
             BINARY_SENSOR.CloudEdgeMeariAwakeSensor
@@ -186,6 +212,7 @@ class LiveUntilTests(unittest.TestCase):
         sensor._coordinator = self.coord
         self.assertEqual(sensor.extra_state_attributes, {"live_until": None})
         self.coord.wake_camera()
+        self.coord._refresh_camera_awake()
         value = sensor.extra_state_attributes["live_until"]
         self.assertIsInstance(datetime.fromisoformat(value), datetime)
 

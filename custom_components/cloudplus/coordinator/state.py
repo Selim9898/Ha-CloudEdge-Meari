@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ..api import MeariApiClient
@@ -37,6 +37,9 @@ class CoordinatorStateMixin:
     _latest_image_source: str
     _latest_image_generation: int = 0
     _latest_image_updated_at: float
+    # Wall-clock end of the live window (epoch seconds, whole), set only when
+    # the planned end moves, so the published attribute does not churn.
+    _live_until_epoch: int | None = None
 
     @property
     def available(self) -> bool:
@@ -94,12 +97,9 @@ class CoordinatorStateMixin:
     @property
     def live_until(self) -> datetime | None:
         """When the current live window ends if nothing extends it (UTC)."""
-        if not self._is_snap or not self._session_active:
+        if self._live_until_epoch is None:
             return None
-        remaining = self._live_end_mono() - time.monotonic()
-        if remaining <= 0:
-            return None
-        return datetime.now(timezone.utc) + timedelta(seconds=remaining)
+        return datetime.fromtimestamp(self._live_until_epoch, timezone.utc)
 
     @property
     def battery_percent(self) -> int | None:
@@ -344,6 +344,9 @@ class CoordinatorStateMixin:
             bool(live_end) != bool(self._reported_live_end)
         ):
             self._reported_live_end = live_end
+            self._live_until_epoch = (
+                round(time.time() + (live_end - now)) if live_end else None
+            )
             self._fire_update()
         self._set_camera_awake(self._frame_grab_active or delivering_live)
 
