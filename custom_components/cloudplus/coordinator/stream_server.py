@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import logging
+import select
 import socket
 import threading
 from dataclasses import dataclass
@@ -15,6 +16,32 @@ _LOGGER = logging.getLogger(__name__)
 
 CLIENT_QUEUE_CHUNKS = 4096
 CLIENT_SEND_TIMEOUT_S = 10.0
+CLIENT_READ_DRAIN_BYTES = 4096
+
+
+def _peer_closed(client: socket.socket) -> bool:
+    """Return True once the viewer has closed its end of the connection.
+
+    Consumers never send anything on this raw MPEG-TS stream, so readable
+    means EOF (or stray bytes, which are discarded). Lets ``client_count``
+    drop while nothing is being broadcast, e.g. during a camera wake.
+    """
+    try:
+        if hasattr(select, "poll"):
+            poller = select.poll()
+            poller.register(client, select.POLLIN)
+            if not poller.poll(0):
+                return False
+        elif not select.select([client], [], [], 0)[0]:
+            return False
+    except (OSError, ValueError):
+        return False  # can't tell here; the next send will
+    try:
+        return not client.recv(CLIENT_READ_DRAIN_BYTES)
+    except BlockingIOError:
+        return False
+    except OSError:
+        return True
 
 
 @dataclass
@@ -208,7 +235,8 @@ class StreamServer:
     ) -> None:
         try:
             while self._running:
-                event.wait(timeout=0.5)
+                if not event.wait(timeout=0.5) and not queue and _peer_closed(client):
+                    break
                 event.clear()
                 while queue:
                     chunk = queue.popleft()

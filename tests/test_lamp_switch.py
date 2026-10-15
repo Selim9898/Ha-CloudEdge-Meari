@@ -16,10 +16,18 @@ COORDINATOR = MODULES["coordinator"].CloudEdgeMeariCoordinator
 
 
 def load_switch() -> ModuleType:
-    """Import the switch platform with the one HA stub it needs beyond the bootstrap."""
+    """Import the switch platform with the HA stubs it needs beyond the bootstrap."""
     switch_stub = ModuleType("homeassistant.components.switch")
     switch_stub.SwitchEntity = type("SwitchEntity", (), {})
-    with patch.dict(sys.modules, {"homeassistant.components.switch": switch_stub}):
+    const_stub = ModuleType("homeassistant.const")
+    const_stub.EntityCategory = SimpleNamespace(CONFIG="config")
+    with patch.dict(
+        sys.modules,
+        {
+            "homeassistant.components.switch": switch_stub,
+            "homeassistant.const": const_stub,
+        },
+    ):
         return importlib.import_module("custom_components.cloudplus.switch")
 
 

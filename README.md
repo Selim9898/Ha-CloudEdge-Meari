@@ -52,7 +52,8 @@ each app's own identity during login.
 - **Motion / AI alerts via MQTT** — battery cameras push PIR, person, pet,
   package and visitor events in real time through the Meari IoT broker.
 - **Battery-camera wake control** — manual wake button, auto-wake on motion
-  switch, and configurable wake duration.
+  switch, configurable wake duration, and wake when someone watches the
+  stream (capped per viewing session).
 - **Full settings surface** — most camera IoT toggles (LED, PIR, sirens,
   day/night, recording, anti-flicker, ONVIF, HomeKit, …) appear as native
   HA entities and write back to the camera.
@@ -121,6 +122,8 @@ Open any camera device → **Configure**:
 | Option            | Description |
 |-------------------|-------------|
 | Video password    | If you enabled **E2EE / video encryption** in the app, enter that 6-digit code here so the stream can be decrypted. Leave empty otherwise. |
+| Wake when watched | Battery cameras only, default on. Same setting as the *Wake when watched* switch. |
+| Wake when watched: max minutes | Live minutes per viewing session before falling back to the idle still (1–60, default 10). |
 
 ### Per-account options
 
@@ -147,6 +150,7 @@ discovered from the camera's IoT model values.
 | Charge Status       | `sensor`        | Discharging / Charging / Full text status. |
 | Wake Camera         | `button`        | Manually wake the camera. |
 | Wake on Motion      | `switch`        | Toggle auto-wake when a motion event fires. |
+| Wake when watched   | `switch` (config) | Battery cameras go live while a stream client is connected, capped per viewing session. See [Wake when watched](#wake-when-watched-battery-cameras). |
 | Motion Timeout      | `number`        | How long the camera stays awake after motion (10–600 s). |
 | Stream Host Mode    | `select`        | `IP Address` (default) or `Docker Hostname` for the stream URL — see [Streaming notes](#streaming-notes). |
 | Stream Quality      | `select`        | `AUTO`, `SD`, `HD`, `QHD`, … — advertised profiles, or the native HD/SD fallback for legacy cameras. |
@@ -221,6 +225,29 @@ Some Meari doorbells are reported by the API as `doorbell` / `pictureDoorBell`
 rather than `snap`, even though their capability map advertises `bat`. The
 coordinator treats those battery-capable doorbell categories as battery
 cameras so they use the same wake/idle-stream lifecycle.
+
+### Wake when watched (battery cameras)
+
+Opening the camera in a dashboard (or any client connecting to its stream)
+wakes a battery camera and keeps it live while the client stays connected,
+so you see live video instead of the idle still without pressing *Wake
+Camera*. It is on by default; turn it off with the *Wake when watched*
+switch or in the camera's options.
+
+Live video costs battery, so each continuous viewing session gets at most
+10 minutes (configurable, 1–60) of watch-driven live time. After that the
+stream falls back to the idle still until every client has been gone for
+~30 s or you press *Wake Camera* (which starts a fresh session). Live
+continues ~10 s after the last client leaves.
+
+> ⚠️ **Clients that hold the stream open count as watching.** HA's
+> *Preload stream* option, Frigate, and go2rtc producers kept warm all keep
+> a connection open permanently. With wake when watched on, each of those
+> wakes the camera for up to the cap every time it (re)connects after a gap,
+> including after every HA or Frigate restart, and stops further wakes for
+> human viewers until the session resets. If such a client is always
+> connected, turn the switch off (or lower the cap) and rely on motion and
+> the Wake button.
 
 ### Stream Host Mode
 

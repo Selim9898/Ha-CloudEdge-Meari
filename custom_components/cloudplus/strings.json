@@ -48,6 +48,8 @@
         "data": {
           "password": "Account password (leave empty to keep current)",
           "video_password": "Video encryption password (E2EE)",
+          "wake_when_watched": "Wake when watched (battery cameras go live while a stream client is connected)",
+          "wake_when_watched_max_minutes": "Wake when watched: max live minutes per viewing session",
           "country_code": "Country code",
           "phone_code": "Phone country code",
           "app_profile": "App profile"
@@ -77,7 +79,8 @@
       "battery": { "name": "Battery" }
     },
     "switch": {
-      "motion_wake": { "name": "Wake on Motion" }
+      "motion_wake": { "name": "Wake on Motion" },
+      "watch_wake": { "name": "Wake when watched" }
     }
   }
 }

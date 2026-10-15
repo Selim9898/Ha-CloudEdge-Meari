@@ -5,8 +5,8 @@ the [low-level protocol](protocol.md).
 
 > 🛠 **Agents: keep this file in sync with the code.** Any change to
 > live-start ordering, wake retry, source-idle recovery, the idle stream,
-> MPEG-TS fan-out, or muxer timing rules must be reflected here in the
-> same change. See [AGENTS.md](../AGENTS.md) for the full doc-maintenance
+> wake when watched, the Camera Awake semantics, MPEG-TS fan-out, or muxer
+> timing rules must be reflected here in the same change. See [AGENTS.md](../AGENTS.md) for the full doc-maintenance
 > policy.
 
 ## Live-start: send immediately after handshake
@@ -188,6 +188,54 @@ The Camera Awake sensor carries a `live_until` attribute (ISO-8601 UTC, or
 `null`): when the current live window ends if nothing extends it. It is
 re-published only when that end moves by more than a second, so a client app
 can show a countdown without the state churning.
+
+## Wake when watched
+
+On a snap camera the live window (`_live_deadline`) is opened by motion or
+an explicit wake; outside it the server serves the idle still. With *Wake
+when watched* (`coordinator/watch_wake.py`, option `wake_when_watched`,
+default on) the snap loop also treats a connected stream client as a reason
+to be live:
+
+- A client on the local MPEG-TS server (`StreamServer.client_count > 0`)
+  starts a **viewing session**. If no live window is open, the coordinator
+  sends the same HTTP wake as the Wake button; the live loop then starts the
+  P2P session, which handles dormancy wake as described above.
+- While clients stay connected the live window is extended to
+  `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
+  10 s after the last client leaves.
+- **Battery cap.** A viewing session gets at most
+  `wake_when_watched_max_minutes` (default 10, 1–60) of watch-driven live
+  time. The window never extends past the cap; afterwards the stream falls
+  back to the idle still. Short client gaps (< `WATCH_SESSION_GAP_S`, 30 s)
+  belong to the same session, and extra connections during a capped session
+  do **not** reset it, so clients that reconnect in a loop or hold the port
+  permanently cannot keep the camera awake. The session (and cap) resets
+  when all clients have been gone for 30 s, on an explicit wake, or when
+  the option is turned back on.
+- Motion and the Wake button keep their own windows; wake when watched only
+  ever extends, never shortens, the deadline.
+- `live_until` reports the cap end while a viewer keeps watching.
+
+The integration itself never connects to its stream server (snapshots are
+converted from in-memory keyframes), so every counted client is a real
+consumer: HA's `stream` worker or go2rtc for a dashboard viewer, Frigate,
+the debug harness's ffplay, and so on.
+
+**Battery cost of always-connected clients.** HA's *Preload stream*,
+Frigate, and a go2rtc producer kept warm hold the TCP connection open
+permanently. Each such client costs up to one cap of live video per viewing
+session: after every HA/Frigate restart, after every reconnect that follows
+a gap of 30 s or more, and after every explicit wake. Once capped, a human
+viewer opening the camera while such a client stays connected sees the
+idle still until they press Wake. If a client is always connected, disable
+the option and rely on motion and the Wake button.
+
+Because the watched camera is often mid-wake with nothing to broadcast, the
+stream server also notices closed clients without sending to them: each
+client writer polls its socket for EOF while its queue is idle. Otherwise a
+viewer who left during the wake would count as watching until the first
+live packet.
 
 ## Timing rules
 

@@ -44,6 +44,7 @@ from .motion import MotionEventListener
 from .muxer import FfmpegMuxer
 from .state import CoordinatorStateMixin
 from .stream_server import StreamServer
+from .watch_wake import WatchWakeMixin
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -69,7 +70,7 @@ SNAPSHOT_CARD_REFRESH_INTERVAL = 3.0
 SNAPSHOT_CARD_REQUEST_TTL = 30.0
 
 
-class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
+class CloudEdgeMeariCoordinator(WatchWakeMixin, CoordinatorStateMixin):
     """Small runtime coordinator used by debug.py and camera entity."""
 
     def __init__(
@@ -190,6 +191,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
 
         quality_setting = entry.options.get(CONF_STREAM_QUALITY) if entry else None
         self._vvp_quality: int | None = parse_quality_setting(device, quality_setting)
+        self._init_watch_wake(entry.options if entry else None)
         self._codec_params = CodecParameterCache()
         self._stream_started_keyframe = False
 
@@ -325,6 +327,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 next_grab_retry = time.monotonic() + idle_retry_s
 
             self._consume_wake_event()
+            self._update_watch_wake(time.monotonic())
             if self._motion_detected and self._motion_wake_enabled:
                 self._live_deadline = max(
                     self._live_deadline,
@@ -410,6 +413,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
         while self._running and time.monotonic() < self._live_deadline:
             now = time.monotonic()
             self._consume_wake_event()
+            self._update_watch_wake(now)
             self._refresh_camera_awake(now)
             if self._stream_restart.is_set():
                 self._stream_restart.clear()

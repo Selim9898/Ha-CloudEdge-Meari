@@ -52,7 +52,7 @@ derived from the camera's IoT model:
 | `sensor.py` | Battery + Charge Status. | Temperature, Humidity, WiFi Signal. |
 | `number.py` | Motion Timeout. | Sensitivities, intervals, brightness, volume… |
 | `select.py` | Stream Host Mode, Stream Quality. | Day/Night, SD record, anti-flicker… |
-| `switch.py` | Wake on Motion. | LED, PIR, ONVIF, HomeKit, sirens… |
+| `switch.py` | Wake on Motion, Wake when watched. | LED, PIR, ONVIF, HomeKit, sirens… |
 
 IoT entities are gated on `coordinator.supports_iot(feature)` or
 `coordinator.has_iot_code(code)`. `coordinator.iot_capability(name)` preserves
@@ -86,6 +86,7 @@ unsupported choices and out-of-range number writes are rejected locally.
 | `__init__.py` | Lifecycle, IoT cache, wake retry loop, video pipeline glue. |
 | `state.py` | Awake (reported vs. internal session gate) / battery / charge state, wake requests, event fan-out. |
 | `motion.py` | Translates raw MQTT alarms into HA binary-sensor pulses. |
+| `watch_wake.py` | Wake when watched: viewing sessions on the stream server extend the snap live window, with a per-session cap. |
 | `iot.py` | Capability parsing and feature checks, IoT value normalization/lookups. |
 | `mpegts.py` + `muxer.py` | ffmpeg-based MPEG-TS muxer (video copy, audio encode). |
 | `audio_encoder.py` | G.711 µ-law → AAC. |

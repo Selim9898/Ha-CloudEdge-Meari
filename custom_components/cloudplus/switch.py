@@ -1,4 +1,4 @@
-"""Switch platform for CloudEdge / Meari — wake on motion toggle."""
+"""Switch platform for CloudEdge / Meari — wake toggles, lamp and IoT switches."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import CONF_WATCH_WAKE, DOMAIN
 from .coordinator import CloudEdgeMeariCoordinator
 from .entity import CloudEdgeMeariEntity, CloudEdgeMeariIotEntity
 from .meari_commands import (
@@ -140,6 +141,7 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = []
     if coord.is_battery_camera:
         entities.append(CloudEdgeMeariMotionWakeSwitch(coord, entry))
+        entities.append(CloudEdgeMeariWatchWakeSwitch(coord, entry))
     if coord.has_lamp:
         entities.append(CloudEdgeMeariLampSwitch(coord, entry))
     else:
@@ -254,6 +256,43 @@ class CloudEdgeMeariMotionWakeSwitch(CloudEdgeMeariEntity, SwitchEntity):
     async def async_turn_off(self, **_kwargs: Any) -> None:
         """Disable wake on motion."""
         self._coordinator.set_motion_wake_enabled(False)
+        self.async_write_ha_state()
+
+
+class CloudEdgeMeariWatchWakeSwitch(CloudEdgeMeariEntity, SwitchEntity):
+    """Switch to wake the camera while a client watches its stream.
+
+    Stored in the camera entry's options so it survives restarts; the cap
+    per viewing session is set in the camera's options.
+    """
+
+    _attr_name = "Wake when watched"
+    _attr_icon = "mdi:eye-arrow-right-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, coordinator: CloudEdgeMeariCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{coordinator.device_uuid}_watch_wake"
+
+    @property
+    def is_on(self) -> bool:
+        return self._coordinator.watch_wake_enabled
+
+    async def async_turn_on(self, **_kwargs: Any) -> None:
+        """Enable wake when watched."""
+        self._set(True)
+
+    async def async_turn_off(self, **_kwargs: Any) -> None:
+        """Disable wake when watched."""
+        self._set(False)
+
+    def _set(self, enabled: bool) -> None:
+        self._coordinator.set_watch_wake_enabled(enabled)
+        options = dict(self._entry.options)
+        options[CONF_WATCH_WAKE] = enabled
+        self.hass.config_entries.async_update_entry(self._entry, options=options)
         self.async_write_ha_state()
 
 

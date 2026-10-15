@@ -25,10 +25,15 @@ from .const import (
     CONF_PASSWORD,
     CONF_SN_NUM,
     CONF_VIDEO_PASSWORD,
+    CONF_WATCH_WAKE,
+    CONF_WATCH_WAKE_MAX_MINUTES,
     DEFAULT_APP_PROFILE,
     DEFAULT_COUNTRY_CODE,
     DEFAULT_PHONE_CODE,
+    DEFAULT_WATCH_WAKE,
+    DEFAULT_WATCH_WAKE_MAX_MINUTES,
     DOMAIN,
+    WATCH_WAKE_MAX_MINUTES_RANGE,
 )
 from .api import build_api_client
 
@@ -161,7 +166,7 @@ class CloudEdgeMeariOptionsFlow(OptionsFlow):
         return await self._account_options(user_input)
 
     # ------------------------------------------------------------------
-    # Camera entry — only E2EE video password
+    # Camera entry — E2EE video password; wake when watched (battery cameras)
     # ------------------------------------------------------------------
 
     async def _camera_options(
@@ -171,6 +176,8 @@ class CloudEdgeMeariOptionsFlow(OptionsFlow):
         current_video_password = _clean_optional_text(
             current_options.get(CONF_VIDEO_PASSWORD)
         )
+        coord = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id)
+        battery_camera = bool(getattr(coord, "is_battery_camera", True))
 
         if user_input is not None:
             new_options = dict(current_options)
@@ -179,6 +186,9 @@ class CloudEdgeMeariOptionsFlow(OptionsFlow):
                 new_options[CONF_VIDEO_PASSWORD] = video_password
             else:
                 new_options.pop(CONF_VIDEO_PASSWORD, None)
+            for key in (CONF_WATCH_WAKE, CONF_WATCH_WAKE_MAX_MINUTES):
+                if key in user_input:
+                    new_options[key] = user_input[key]
             self.hass.config_entries.async_update_entry(
                 self._config_entry, options=new_options
             )
@@ -186,16 +196,34 @@ class CloudEdgeMeariOptionsFlow(OptionsFlow):
             # Return saved options to avoid the flow finalization clearing them.
             return self.async_create_entry(title="", data=new_options)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_VIDEO_PASSWORD, default=current_video_password
-                    ): str,
-                }
-            ),
-        )
+        schema: dict[Any, Any] = {
+            vol.Optional(CONF_VIDEO_PASSWORD, default=current_video_password): str,
+        }
+        if battery_camera:
+            low, high = WATCH_WAKE_MAX_MINUTES_RANGE
+            try:
+                max_minutes = int(
+                    current_options.get(
+                        CONF_WATCH_WAKE_MAX_MINUTES, DEFAULT_WATCH_WAKE_MAX_MINUTES
+                    )
+                )
+            except (TypeError, ValueError):
+                max_minutes = DEFAULT_WATCH_WAKE_MAX_MINUTES
+            schema[
+                vol.Optional(
+                    CONF_WATCH_WAKE,
+                    default=bool(
+                        current_options.get(CONF_WATCH_WAKE, DEFAULT_WATCH_WAKE)
+                    ),
+                )
+            ] = bool
+            schema[
+                vol.Optional(
+                    CONF_WATCH_WAKE_MAX_MINUTES,
+                    default=max(low, min(high, max_minutes)),
+                )
+            ] = vol.All(vol.Coerce(int), vol.Range(min=low, max=high))
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
 
     # ------------------------------------------------------------------
     # Account entry — credentials; propagated to all child camera entries
