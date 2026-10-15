@@ -14,7 +14,13 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `207256e` | fix(camera): offer WebRTC once the stream server has a port | Open PR |
 | `b95dae9` | fix(awake): Camera Awake reports live frames, not wake requests; `live_until` attribute | Not yet offered |
 | `1d59d87` | feat(stream): wake when watched, capped per viewing session, plus a config switch and options | Not yet offered |
-| this file | LOOX-FORK.md | Fork only |
+| `ffb0a2f` | LOOX-FORK.md | Fork only |
+| `f6748f7` | fix(watch-wake): window survives a slow wake; wakes rate-limited | Fold into the wake-on-watch PR |
+| `4599299` | fix(watch-wake): client presence from the stream server | Fold into the wake-on-watch PR |
+| `6e67e26` | fix(watch-wake): sticky cap, rolling hourly budget, state survives reloads | Fold into the wake-on-watch PR |
+| `b5eae08` | fix(watch-wake): default cap 5 min; HLS vs WebRTC hold times documented | Fold into the wake-on-watch PR |
+| `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
+| `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Fold into the WebRTC PR |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
