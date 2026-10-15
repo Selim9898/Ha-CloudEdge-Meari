@@ -63,7 +63,7 @@ class WatchWakeMixin:
         )
         self._watch_wake_max_s = 60.0 * watch_wake_max_minutes(options)
         self._watch_started_at = 0.0
-        self._watch_last_seen = 0.0
+        self._watch_ended_at = 0.0
         self._watch_capped = False
         self._watch_last_wake = float("-inf")
 
@@ -81,8 +81,9 @@ class WatchWakeMixin:
         self._reset_watch_session()
         super().wake_camera()
 
-    def _reset_watch_session(self) -> None:
+    def _reset_watch_session(self, now: float | None = None) -> None:
         self._watch_started_at = 0.0
+        self._watch_ended_at = time.monotonic() if now is None else now
         self._watch_capped = False
 
     def _watch_wake_active(self) -> bool:
@@ -104,16 +105,22 @@ class WatchWakeMixin:
         """Track the viewing session and extend the live window while watched."""
         if not self._is_snap:
             return
-        if self._stream_server.client_count <= 0:
+        # Presence comes from the server's own connect/disconnect times, so a
+        # loop that was blocked (frame grab, wake, status poll) cannot mistake
+        # one zero-client instant for a long gap.
+        presence = self._stream_server.presence()
+        if presence.count <= 0:
             if (
                 self._watch_started_at
-                and now - self._watch_last_seen >= WATCH_SESSION_GAP_S
+                and now - presence.last_left >= WATCH_SESSION_GAP_S
             ):
-                self._reset_watch_session()
+                self._reset_watch_session(now)
             return
-        self._watch_last_seen = now
         if not self._watch_started_at:
-            self._watch_started_at = now
+            # Count from when the client connected (the loop may have been
+            # busy), but never from before the previous session ended.
+            started = max(presence.occupied_since, self._watch_ended_at)
+            self._watch_started_at = min(now, started) if started > 0 else now
             self._watch_capped = False
         if not self._watch_wake_enabled or self._watch_capped:
             return

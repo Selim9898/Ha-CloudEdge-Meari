@@ -7,6 +7,7 @@ import logging
 import select
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Deque
 
@@ -44,6 +45,19 @@ def _peer_closed(client: socket.socket) -> bool:
         return True
 
 
+@dataclass(frozen=True)
+class ClientPresence:
+    """Who is connected, tracked by the server rather than by a poller.
+
+    ``occupied_since`` is when the client count last went from zero to one;
+    ``last_left`` is when it last dropped back to zero (monotonic, 0 = never).
+    """
+
+    count: int
+    occupied_since: float
+    last_left: float
+
+
 @dataclass
 class _Client:
     sock: socket.socket
@@ -60,6 +74,8 @@ class StreamServer:
         self._port = 0
         self._running = False
         self._clients: list[_Client] = []
+        self._occupied_since = 0.0
+        self._last_client_left = 0.0
         self._lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
         self._accept_thread: threading.Thread | None = None
@@ -74,6 +90,12 @@ class StreamServer:
     def client_count(self) -> int:
         with self._lock:
             return len(self._clients)
+
+    def presence(self) -> ClientPresence:
+        with self._lock:
+            return ClientPresence(
+                len(self._clients), self._occupied_since, self._last_client_left
+            )
 
     def start(self) -> None:
         with self._lifecycle_lock:
@@ -141,6 +163,8 @@ class StreamServer:
                     client.sock.close()
                 except OSError:
                     pass
+            if self._clients:
+                self._last_client_left = time.monotonic()
             self._clients.clear()
             self._bootstrap.reset()
         self._port = 0
@@ -217,6 +241,8 @@ class StreamServer:
                 if bootstrap:
                     queue.append(bootstrap)
                     event.set()
+                if not self._clients:
+                    self._occupied_since = time.monotonic()
                 self._clients.append(_Client(client, queue, event, wait_generation))
             threading.Thread(
                 target=self._client_writer,
@@ -245,9 +271,12 @@ class StreamServer:
             pass
         finally:
             with self._lock:
-                self._clients = [
+                remaining = [
                     item for item in self._clients if item.sock is not client
                 ]
+                if self._clients and not remaining:
+                    self._last_client_left = time.monotonic()
+                self._clients = remaining
             try:
                 client.close()
             except OSError:

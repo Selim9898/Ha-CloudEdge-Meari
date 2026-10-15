@@ -242,6 +242,15 @@ client writer polls its socket for EOF while its queue is idle. Otherwise a
 viewer who left during the wake would count as watching until the first
 live packet.
 
+Client presence comes from the stream server itself
+(`StreamServer.presence()`: count, when it last went from zero to one, when
+it last dropped to zero), not from what the snap loop happened to see. The
+loop blocks for long stretches (initial frame grab, wake calls, status
+polls); with loop-sampled presence a single zero-client instant after such
+a stretch looked like a 30 s gap and reset the cap. A session's clock
+starts when the client connected, but never before the previous session
+ended.
+
 ## Timing rules
 
 - Camera timestamps can be unstable across stalls, especially with HEVC and

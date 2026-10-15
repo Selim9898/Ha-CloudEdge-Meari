@@ -61,13 +61,34 @@ class _Loop:
         cb(*args)
 
 
+class FakeStreamServer:
+    """Client presence on a synthetic monotonic timeline."""
+
+    def __init__(self) -> None:
+        self.client_count = 0
+        self.occupied_since = 0.0
+        self.last_left = 0.0
+
+    def set(self, clients: int, now: float) -> None:
+        if clients and not self.client_count:
+            self.occupied_since = now
+        if self.client_count and not clients:
+            self.last_left = now
+        self.client_count = clients
+
+    def presence(self) -> Any:
+        return STREAM_SERVER.ClientPresence(
+            self.client_count, self.occupied_since, self.last_left
+        )
+
+
 def coordinator(category: str = "snap", options: dict | None = None) -> Any:
     """A never-started coordinator with a fake stream server and wake call."""
     hass = SimpleNamespace(loop=_Loop(), data={})
     device = {"deviceID": 1, "snNum": "synthetic-camera", "_category": category}
     entry = SimpleNamespace(options=options or {})
     coord = COORDINATOR(hass, "user@example.invalid", "x", device, entry=entry)
-    coord._stream_server = SimpleNamespace(client_count=0)
+    coord._stream_server = FakeStreamServer()
     coord._send_wake = Mock()
     return coord
 
@@ -79,7 +100,7 @@ class WatchWakeTests(unittest.TestCase):
 
     def watch(self, clients: int, now: float) -> None:
         """One snap-loop tick at synthetic monotonic time ``now``."""
-        self.coord._stream_server.client_count = clients
+        self.coord._stream_server.set(clients, now)
         with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
             self.coord._update_watch_wake(now)
 
@@ -132,6 +153,20 @@ class WatchWakeTests(unittest.TestCase):
         self.watch(1, T0 + 101 + GAP / 2)
         self.assertEqual(self.coord._watch_started_at, T0)
 
+    def test_a_stale_loop_tick_does_not_end_the_session(self) -> None:
+        self.watch(1, T0)
+        # The loop was blocked (frame grab, wake call) while the viewer stayed;
+        # it then catches a one-second reconnect gap.
+        self.coord._stream_server.set(0, T0 + 100)
+        self.coord._update_watch_wake(T0 + 101)
+        self.watch(1, T0 + 102)
+        self.assertEqual(self.coord._watch_started_at, T0)
+
+    def test_session_starts_when_the_client_connected(self) -> None:
+        self.coord._stream_server.set(1, T0)
+        self.watch(1, T0 + 40)  # first tick after a 40 s frame grab
+        self.assertEqual(self.coord._watch_started_at, T0)
+
     def test_new_session_after_everyone_left_wakes_again(self) -> None:
         self.watch(1, T0)
         self.watch(1, T0 + self.cap)
@@ -177,7 +212,7 @@ class WatchWakeTests(unittest.TestCase):
             clock.now = T0 + 45  # two cloud calls near their read timeout
 
         self.coord._send_wake.side_effect = slow_wake
-        self.coord._stream_server.client_count = 1
+        self.coord._stream_server.set(1, T0)
         with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: clock.now)):
             self.coord._update_watch_wake(T0)
         self.assertEqual(self.coord._live_deadline, T0 + 45 + LINGER)
@@ -197,7 +232,7 @@ class WatchWakeTests(unittest.TestCase):
 
     def test_mains_cameras_are_untouched(self) -> None:
         coord = coordinator(category="ipc")
-        coord._stream_server.client_count = 1
+        coord._stream_server.set(1, T0)
         coord._update_watch_wake(T0)
         coord._send_wake.assert_not_called()
         self.assertEqual(coord._live_deadline, 0.0)
@@ -276,7 +311,7 @@ class LiveLoopCapTests(unittest.TestCase):
         coord = coordinator()
         coord._running = True
         coord._watch_wake_max_s = 0.8
-        coord._stream_server.client_count = 1
+        coord._stream_server.set(1, time.monotonic())
         coord._start_streamer_once = lambda **_kw: setattr(
             coord, "_stream_thread", _FakeWorker()
         )
@@ -312,6 +347,22 @@ class StreamServerClientCountTests(unittest.TestCase):
             # Nothing is broadcast (e.g. during a camera wake); the count must
             # still drop so watch-driven live time ends with the viewer.
             self.assertTrue(self._wait(lambda: server.client_count == 0))
+        finally:
+            server.stop()
+
+    def test_presence_records_connect_and_leave_times(self) -> None:
+        server = STREAM_SERVER.StreamServer()
+        server.start()
+        try:
+            before = time.monotonic()
+            viewer = socket.create_connection(("127.0.0.1", server.port), timeout=2)
+            self.assertTrue(self._wait(lambda: server.presence().count == 1))
+            self.assertGreaterEqual(server.presence().occupied_since, before)
+            viewer.close()
+            self.assertTrue(self._wait(lambda: server.presence().count == 0))
+            self.assertGreaterEqual(
+                server.presence().last_left, server.presence().occupied_since
+            )
         finally:
             server.stop()
 
