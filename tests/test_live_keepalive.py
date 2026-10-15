@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import importlib
+import inspect
 import json
 import unittest
 
@@ -17,6 +18,8 @@ from debug_tools.bootstrap import _bootstrap_integration_modules
 MODULES = _bootstrap_integration_modules()
 CODECS = importlib.import_module("custom_components.cloudplus.p2p_streamer.codecs")
 KEEPALIVE = importlib.import_module("custom_components.cloudplus.p2p_streamer.keepalive")
+LIVE_SESSION = importlib.import_module("custom_components.cloudplus.p2p_streamer.live_session")
+ENGINE = importlib.import_module("custom_components.cloudplus.p2p_streamer.engine")
 SIGNALING = importlib.import_module("custom_components.cloudplus.meari_signaling")
 MSGSVR = importlib.import_module("custom_components.cloudplus.msgsvr_codec")
 
@@ -61,11 +64,15 @@ class FakeSocket:
 
 
 class StartLiveKeepaliveTests(unittest.TestCase):
-    def test_no_periodic_start_live_on_either_codec(self) -> None:
-        for codec in (CODECS.CodecName.H264, CODECS.CodecName.HEVC):
-            with self.subTest(codec=codec):
-                policy = CODECS.runtime_policy_for(codec)
-                self.assertEqual(policy.start_live_keepalive_s, 0.0)
+    def test_kcp_live_loop_never_resends_start_live_as_keepalive(self) -> None:
+        source = inspect.getsource(LIVE_SESSION.LiveSessionMixin._stream_with_turn)
+        self.assertFalse("start_live_keepalive_s" in source)
+        self.assertFalse('"keepalive"' in source)
+
+    def test_ppcs_keeps_its_30_s_resend_on_h264(self) -> None:
+        policy = CODECS.runtime_policy_for(CODECS.CodecName.H264)
+        self.assertEqual(policy.start_live_keepalive_s, 30.0)
+        self.assertIn("start_live_keepalive_s", inspect.getsource(ENGINE.P2PStreamer))
 
     def test_reactive_start_live_retry_is_kept(self) -> None:
         policy = CODECS.runtime_policy_for(CODECS.CodecName.H264)

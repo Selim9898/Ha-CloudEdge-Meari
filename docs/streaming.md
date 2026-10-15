@@ -143,8 +143,9 @@ they do not proactively send `START_LIVE` while video is flowing. Re-sending it
 mid-flow can make WAN relay sessions go silent on this camera. A capture of
 the ieGeek app on an H.264 snap camera (3 min 47 s of live, LAN direct) shows
 the same: one `START_LIVE` at start, one more only for a quality switch, and
-none as keep-alive. H.264 therefore no longer re-sends it every 30 s
-(`start_live_keepalive_s = 0` for both codecs).
+none as keep-alive. The KCP live loop therefore never re-sends it as a
+keep-alive (any codec). `start_live_keepalive_s` (30 s on H.264, 0 on
+HEVC) now only drives the legacy PPCS loop, which keeps its resend.
 
 The integration therefore:
 

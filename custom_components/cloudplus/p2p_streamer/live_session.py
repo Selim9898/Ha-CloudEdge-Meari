@@ -699,17 +699,9 @@ class LiveSessionMixin:
             if talk is not None and live_started:
                 talk.drain(_talk_open, _talk_close, _talk_frame)
 
-            keepalive_s = runtime_policy_for(self._video_codec).start_live_keepalive_s
-            if (
-                keepalive_s > 0.0
-                and last_video_time > 0.0
-                and now >= last_start_live + keepalive_s
-            ):
-                _send_start_live(
-                    "keepalive",
-                    now,
-                    wait_for_recovery_keyframe=True,
-                )
+            # No periodic START_LIVE on the KCP path: the official app sends it
+            # once per session (plus a quality switch), never as a keep-alive.
+            # The codec keep-alive interval only drives the legacy PPCS loop.
 
             if now >= turn_refresh:
                 try:
