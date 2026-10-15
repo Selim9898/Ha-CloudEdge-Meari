@@ -163,6 +163,32 @@ budget because an older battery camera may register late. After connection,
 heartbeats sustain the session; `START_LIVE` is reissued for wake retries,
 stale client joins, and source-idle recovery, but not while video is current.
 
+## Camera Awake reflects what the stream serves
+
+A snap camera's stream is in one of three states: idle (the server repeats
+the last keyframe as a ~2 fps still), waking (a live window is open and the
+P2P session is connecting or waking the camera, but no frame has arrived) or
+live (camera frames flow through the muxer). The coordinator keeps two flags
+apart:
+
+- `_session_active` is the internal gate. It goes up as soon as a wake is
+  requested (button, motion) so the idle still loop stops writing into the
+  muxer, and drops when the live window ends.
+- `camera_awake` is the reported state behind the **Camera Awake** binary
+  sensor (and the camera entity's `is_streaming`). It is on while the
+  initial frame grab runs and while live frames keep arriving
+  (`AWAKE_LIVE_FRAME_TIMEOUT_S`, 10 s, rides out short source pauses). It is
+  off while a wake is still pending and whenever the idle still is served.
+
+Reporting `camera_awake` from the wake request instead of from frames made
+the sensor say "awake" for a camera that was still asleep, and it could miss
+the live period entirely.
+
+The Camera Awake sensor carries a `live_until` attribute (ISO-8601 UTC, or
+`null`): when the current live window ends if nothing extends it. It is
+re-published only when that end moves by more than a second, so a client app
+can show a countdown without the state churning.
+
 ## Timing rules
 
 - Camera timestamps can be unstable across stalls, especially with HEVC and

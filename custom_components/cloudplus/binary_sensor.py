@@ -71,7 +71,11 @@ class CloudEdgeMeariMotionSensor(CloudEdgeMeariEntity, BinarySensorEntity):
 
 
 class CloudEdgeMeariAwakeSensor(CloudEdgeMeariEntity, BinarySensorEntity):
-    """Binary sensor for camera awake state."""
+    """On while the camera delivers live video (or grabs its first frame).
+
+    Off while a wake is still pending and while the idle still is served.
+    ``live_until`` tells clients when the current live window ends.
+    """
 
     _attr_name = "Camera Awake"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
@@ -86,6 +90,11 @@ class CloudEdgeMeariAwakeSensor(CloudEdgeMeariEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return self._coordinator.camera_awake
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        live_until = self._coordinator.live_until
+        return {"live_until": live_until.isoformat() if live_until else None}
 
 
 class CloudEdgeMeariChargingSensor(CloudEdgeMeariEntity, BinarySensorEntity):

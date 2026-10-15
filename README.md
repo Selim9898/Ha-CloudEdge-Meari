@@ -141,7 +141,7 @@ discovered from the camera's IoT model values.
 |---------------------|-----------------|---------|
 | Camera              | `camera`        | Live preview + `stream_source` for go2rtc / Frigate. |
 | Motion              | `binary_sensor` | PIR / motion / AI alert (person, pet, package, etc.). |
-| Camera Awake        | `binary_sensor` | True while the camera is actively streaming. |
+| Camera Awake        | `binary_sensor` | On while the camera delivers live video (or grabs its first frame); off while waking or serving the idle still. `live_until` attribute = when the live window ends. |
 | Charging            | `binary_sensor` | USB charging state (battery cameras). |
 | Battery             | `sensor`        | Charge percentage (battery cameras). |
 | Charge Status       | `sensor`        | Discharging / Charging / Full text status. |

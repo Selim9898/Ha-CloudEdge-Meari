@@ -113,7 +113,11 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
         self._iot_data: dict[int | str, Any] = {}
 
         self._available = False
-        self._camera_awake = False
+        self._camera_awake = False  # reported: live frames or initial grab
+        self._session_active = False  # P2P owns the muxer; idle loop paused
+        self._frame_grab_active = False
+        self._last_live_frame_time = 0.0
+        self._reported_live_end = 0.0
         self._latest_image: bytes | None = None
         self._latest_image_source = ""
         self._latest_image_generation = 0
@@ -207,6 +211,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
         self._running = False
         await self._run_blocking(self._stop_blocking)
         self._available = False
+        self._set_session_active(False)
         self._set_camera_awake(False)
         self._fire_update()
 
@@ -263,6 +268,8 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 _LOGGER.exception("Unexpected coordinator session loop failure")
             self._available = False
             self._set_motion(False)
+            self._frame_grab_active = False
+            self._set_session_active(False)
             self._set_camera_awake(False)
             self._fire_update()
             if self._running:
@@ -328,7 +335,8 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 self._run_live_until_deadline()
                 continue
 
-            self._set_camera_awake(False)
+            self._set_session_active(False)
+            self._refresh_camera_awake()
             time.sleep(0.2)
 
     def _ipc_session_loop(self) -> None:
@@ -371,7 +379,9 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 self._stream_thread = None
 
     def _run_initial_frame_grab(self) -> bool:
-        self._set_camera_awake(True)
+        self._frame_grab_active = True
+        self._set_session_active(True)
+        self._refresh_camera_awake()
         self._idle_frame_ready.clear()
         deadline = time.monotonic() + self._initial_grab_timeout
         next_wake = 0.0
@@ -390,14 +400,17 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 break
         got_frame = self._idle_frame_ready.is_set()
         self._stop_streamer(join_timeout=4)
-        self._set_camera_awake(False)
+        self._frame_grab_active = False
+        self._set_session_active(False)
+        self._refresh_camera_awake()
         return got_frame
 
     def _run_live_until_deadline(self) -> None:
-        self._set_camera_awake(True)
+        self._set_session_active(True)
         while self._running and time.monotonic() < self._live_deadline:
             now = time.monotonic()
             self._consume_wake_event()
+            self._refresh_camera_awake(now)
             if self._stream_restart.is_set():
                 self._stream_restart.clear()
                 self._stop_streamer(join_timeout=2)
@@ -435,23 +448,9 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
         self._set_motion(False)
         self._prime_idle_stream()
         if time.monotonic() >= self._live_deadline:
-            self._set_camera_awake(False)
+            self._set_session_active(False)
+        self._refresh_camera_awake()
         self._join_streamer(join_timeout=1)
-
-    def _consume_wake_event(self) -> None:
-        if not self._wake_event.is_set():
-            return
-        self._wake_event.clear()
-        self._extend_live_deadline()
-        self._send_wake()
-
-    def _send_wake(self) -> None:
-        if not self._is_snap or self._api is None:
-            return
-        try:
-            self._api.wake_device(self._sn_num, self._device_id)
-        except (OSError, RuntimeError, ValueError, KeyError) as exc:
-            _LOGGER.debug("Wake failed for %s: %s", self._sn_num, exc)
 
     def _start_motion_listener(self, api: MeariApiClient) -> None:
         self._stop_motion_listener()
@@ -506,7 +505,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
     def _request_stream_bootstrap(self) -> bool:
         if not self._running:
             return False
-        if self._is_snap and not self._camera_awake:
+        if self._is_snap and not self._session_active:
             return False
         streamer = self._p2p_streamer
         if streamer is None:
@@ -549,7 +548,7 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
                 self._stream_server.reset_bootstrap()
                 next_frame = time.monotonic()
 
-            if self._camera_awake:
+            if self._session_active:
                 next_frame = time.monotonic()
                 self._idle_stop.wait(0.1)
                 continue
@@ -794,6 +793,8 @@ class CloudEdgeMeariCoordinator(CoordinatorStateMixin):
             if not stream_allowed():
                 return
             now = time.monotonic()
+            if not grab_only:
+                self._last_live_frame_time = now
             previous_video_time = self._last_p2p_video_time
             self._last_p2p_video_time = now
             self._last_video_time = now

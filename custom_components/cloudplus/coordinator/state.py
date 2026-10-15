@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from ..api import MeariApiClient
@@ -22,6 +23,12 @@ from ..p2p_streamer import (
 from .iot import capability_value, iot_value, normalize_iot_values, supports_feature
 
 _LOGGER = logging.getLogger(__name__)
+
+# Camera Awake stays on through brief source pauses inside a live session; a
+# longer gap means the camera is no longer delivering live video.
+AWAKE_LIVE_FRAME_TIMEOUT_S = 10.0
+# Only re-publish live_until when the planned end moves by more than this.
+LIVE_UNTIL_REPORT_STEP_S = 1.0
 
 
 class CoordinatorStateMixin:
@@ -81,7 +88,18 @@ class CoordinatorStateMixin:
 
     @property
     def camera_awake(self) -> bool:
+        """True while live frames are delivered or the initial grab runs."""
         return self._camera_awake
+
+    @property
+    def live_until(self) -> datetime | None:
+        """When the current live window ends if nothing extends it (UTC)."""
+        if not self._is_snap or not self._session_active:
+            return None
+        remaining = self._live_end_mono() - time.monotonic()
+        if remaining <= 0:
+            return None
+        return datetime.now(timezone.utc) + timedelta(seconds=remaining)
 
     @property
     def battery_percent(self) -> int | None:
@@ -174,12 +192,12 @@ class CoordinatorStateMixin:
         if self._motion_wake_enabled and self._motion_detected:
             self._wake_event.set()
             self._extend_live_deadline()
-            self._set_camera_awake(True)
+            self._set_session_active(True)
         self._fire_update()
 
     def set_motion_timeout(self, seconds: int) -> None:
         self._motion_timeout = max(10, min(600, int(seconds)))
-        if self._camera_awake:
+        if self._session_active:
             self._extend_live_deadline()
         self._fire_update()
 
@@ -251,7 +269,22 @@ class CoordinatorStateMixin:
     def wake_camera(self) -> None:
         self._wake_event.set()
         self._extend_live_deadline()
-        self._set_camera_awake(True)
+        self._set_session_active(True)
+
+    def _consume_wake_event(self) -> None:
+        if not self._wake_event.is_set():
+            return
+        self._wake_event.clear()
+        self._extend_live_deadline()
+        self._send_wake()
+
+    def _send_wake(self) -> None:
+        if not self._is_snap or self._api is None:
+            return
+        try:
+            self._api.wake_device(self._sn_num, self._device_id)
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            _LOGGER.debug("Wake failed for %s: %s", self._sn_num, exc)
 
     def register_motion_callback(self, cb: Callable[[], None]) -> Callable[[], None]:
         self._motion_callbacks.append(cb)
@@ -290,6 +323,41 @@ class CoordinatorStateMixin:
         self._camera_awake = awake
         self._fire_update()
 
+    def _refresh_camera_awake(self, now: float | None = None) -> None:
+        """Publish Camera Awake from what the stream is actually serving.
+
+        On while the initial frame grab runs or live frames keep arriving in
+        a live session; off while the wake is still pending and while the
+        idle still is served. Also re-publishes ``live_until`` when the
+        planned end of the live window moves.
+        """
+        now = time.monotonic() if now is None else now
+        delivering_live = (
+            self._session_active
+            and self._last_live_frame_time > 0.0
+            and now - self._last_live_frame_time < AWAKE_LIVE_FRAME_TIMEOUT_S
+        )
+        live_end = self._live_end_mono() if self._session_active else 0.0
+        if live_end <= now:
+            live_end = 0.0
+        if abs(live_end - self._reported_live_end) > LIVE_UNTIL_REPORT_STEP_S or (
+            bool(live_end) != bool(self._reported_live_end)
+        ):
+            self._reported_live_end = live_end
+            self._fire_update()
+        self._set_camera_awake(self._frame_grab_active or delivering_live)
+
+    def _set_session_active(self, active: bool) -> None:
+        """Hand the muxer to a P2P session (True) or the idle still loop."""
+        self._session_active = bool(active)
+        if not active:
+            # The next session must earn Camera Awake with its own frames.
+            self._last_live_frame_time = 0.0
+
+    def _live_end_mono(self) -> float:
+        """Monotonic time the live window ends if nothing extends it."""
+        return self._live_deadline
+
     def _set_motion(self, detected: bool, motion_type: str = "") -> None:
         detected = bool(detected)
         motion_type = motion_type if detected else ""
@@ -319,7 +387,7 @@ class CoordinatorStateMixin:
         if self._is_snap and self._motion_wake_enabled:
             self._wake_event.set()
             self._extend_live_deadline()
-            self._set_camera_awake(True)
+            self._set_session_active(True)
 
     @staticmethod
     def _as_int(value: Any) -> int | None:
