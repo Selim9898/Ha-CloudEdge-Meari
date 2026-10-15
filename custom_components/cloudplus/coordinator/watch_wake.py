@@ -22,6 +22,7 @@ reconnect in a loop:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import deque
 from collections.abc import Mapping
@@ -48,6 +49,13 @@ WATCH_SESSION_GAP_S = 30.0
 WATCH_CAPPED_QUIET_S = 300.0
 # Minimum spacing between watch-triggered HTTP wake requests.
 WATCH_WAKE_RETRY_S = 30.0
+# While watched and live, re-send the wake this often. Battery cameras end a
+# live session on their own after ~2 min (observed on an ieGeek snap camera);
+# re-waking before that keeps live seamless up to the cap.
+WATCH_KEEPALIVE_S = 90.0
+# Live frames missing this long during a watch session: serve the idle still
+# instead of a frozen picture until frames resume (or the session reconnects).
+WATCH_STALL_STILL_S = 5.0
 # Watch-driven live time per rolling window: this many session caps.
 WATCH_BUDGET_WINDOW_S = 3600.0
 WATCH_BUDGET_CAPS_PER_WINDOW = 3
@@ -94,6 +102,9 @@ class WatchState:
 
 class WatchWakeMixin:
     """Coordinator mixin: keep the live window open while clients watch."""
+
+    _idle_covering = False  # the idle loop is covering a live stall
+    _keepalive_thread: threading.Thread | None = None
 
     def _init_watch_wake(self, options: Mapping[str, Any] | None) -> None:
         options = options or {}
@@ -180,9 +191,13 @@ class WatchWakeMixin:
         was_live = now < self._live_deadline
         # Open the window before waking: the wake can block for a while.
         self._extend_watch_window(now, cap_end)
-        if was_live or now - state.last_wake < WATCH_WAKE_RETRY_S:
+        if was_live:
+            self._keep_camera_awake(now)
+            return
+        if now - state.last_wake < WATCH_WAKE_RETRY_S:
             return
         state.last_wake = now
+        self._last_wake_sent = now
         _LOGGER.info(
             "Wake when watched: stream client on %s; waking for live video",
             self._sn_num,
@@ -193,6 +208,56 @@ class WatchWakeMixin:
         # already in the past and the next loop tick wakes again.
         if self._stream_server.client_count > 0:
             self._extend_watch_window(time.monotonic(), cap_end)
+
+    def _keep_camera_awake(self, now: float) -> None:
+        """Re-wake the camera before its own live limit ends the session.
+
+        Runs the (blocking) cloud wake on a short-lived thread so the live
+        loop keeps supervising the stream meanwhile.
+        """
+        if now - self._last_wake_sent < WATCH_KEEPALIVE_S:
+            return
+        worker = self._keepalive_thread
+        if worker is not None and worker.is_alive():
+            return
+        self._last_wake_sent = now
+        _LOGGER.debug("Wake when watched: keep-alive wake for %s", self._sn_num)
+        self._keepalive_thread = threading.Thread(
+            target=self._send_wake,
+            name=f"cloudplus_keepalive_{self._sn_num}",
+            daemon=True,
+        )
+        self._keepalive_thread.start()
+
+    def _cover_stall_with_still(self) -> bool:
+        """True while the idle still should cover a stalled watched session."""
+        covering = (
+            self._watch_wake_active()
+            and self._last_live_frame_time > 0.0
+            and time.monotonic() - self._last_live_frame_time > WATCH_STALL_STILL_S
+        )
+        if covering and not self._idle_covering:
+            _LOGGER.info(
+                "Wake when watched: no live video from %s for %.0fs; serving "
+                "the idle still until it resumes",
+                self._sn_num,
+                WATCH_STALL_STILL_S,
+            )
+            self._idle_covering = True
+        return covering
+
+    def _take_back_from_idle(self) -> None:
+        """Live frames are back after a covered stall: restart on a keyframe.
+
+        The idle loop restarted the muxer for the still, so the live stream
+        must begin again with a keyframe and fresh timing.
+        """
+        self._idle_covering = False
+        self._stream_started_keyframe = False
+        self._reset_live_mux_timing()
+        streamer = self._p2p_streamer
+        if streamer is not None:
+            streamer.request_keyframe()
 
     def _cap_watch_session(self, reason: str) -> None:
         self._watch.capped = True

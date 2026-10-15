@@ -40,6 +40,7 @@ class CoordinatorStateMixin:
     # Wall-clock end of the live window (epoch seconds, whole), set only when
     # the planned end moves, so the published attribute does not churn.
     _live_until_epoch: int | None = None
+    _last_wake_sent: float = float("-inf")  # monotonic, any wake request
 
     @property
     def available(self) -> bool:
@@ -289,6 +290,7 @@ class CoordinatorStateMixin:
     def _send_wake(self) -> None:
         if not self._is_snap or self._api is None:
             return
+        self._last_wake_sent = time.monotonic()
         try:
             self._api.wake_device(self._sn_num, self._device_id)
         except (OSError, RuntimeError, ValueError, KeyError) as exc:
@@ -344,6 +346,7 @@ class CoordinatorStateMixin:
             self._session_active
             and self._last_live_frame_time > 0.0
             and now - self._last_live_frame_time < AWAKE_LIVE_FRAME_TIMEOUT_S
+            and not self._idle_covering
         )
         live_end = self._live_end_mono() if self._session_active else 0.0
         if live_end <= now:
@@ -362,6 +365,7 @@ class CoordinatorStateMixin:
         """Hand the muxer to a P2P session (True) or the idle still loop."""
         self._session_active = bool(active)
         if not active:
+            self._idle_covering = False
             # The next session must earn Camera Awake with its own frames.
             self._last_live_frame_time = 0.0
 

@@ -21,6 +21,8 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `b5eae08` | fix(watch-wake): default cap 5 min; HLS vs WebRTC hold times documented | Fold into the wake-on-watch PR |
 | `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
 | `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Fold into the WebRTC PR |
+| `c096f28` | docs(fork): commit table | Fork only |
+| next commit | fix(watch-wake): keep-alive wake every 90 s; idle still over stalls | Fold into the wake-on-watch PR |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
@@ -42,6 +44,11 @@ workflow, so we leave it alone.
   then blocks further watch wakes until it has been gone for 5 min. Turn
   the *Wake when watched* switch off if such a client exists.
 - After the cap, Wake still gives the normal wake window (Motion Timeout).
+- The camera ends live on its own after ~2 min (seen in the 15 Oct live
+  test). While watched, the integration re-sends the wake every 90 s to
+  keep live going up to the cap; if live stalls anyway, viewers get the
+  idle still after 5 s instead of a frozen frame. Confirm both in the next
+  live test.
 
 ## Install on a Home Assistant box
 

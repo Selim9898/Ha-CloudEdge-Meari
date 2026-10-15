@@ -213,6 +213,23 @@ to be live:
 - While clients stay connected the live window is extended to
   `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
   10 s after the last client leaves.
+- **Keep-alive wakes.** The camera ends a live session on its own after
+  about 2 min (observed on an ieGeek snap camera: live stopped at +2:13
+  with the viewer still connected, and we only noticed through the 40 s
+  source-idle reconnect). While a watch session is live and within cap and
+  budget, the coordinator re-sends the HTTP wake every `WATCH_KEEPALIVE_S`
+  (90 s), counted from the last wake of any kind (button, motion, frame
+  grab, watch). The call runs on a short-lived thread so the live loop
+  keeps supervising the stream; at most one is in flight. Whether a wake
+  extends the camera-side window still needs confirming on hardware.
+- **Still over stalls.** If live frames stop for more than
+  `WATCH_STALL_STILL_S` (5 s) during a watch session, the idle loop takes
+  the muxer back and serves the idle still (Camera Awake goes off, camera
+  audio is dropped) instead of leaving viewers on a frozen picture until
+  the source-idle reconnect. When frames return, the live path restarts on
+  a keyframe (it requests one) with fresh mux timing, because the idle loop
+  restarted the muxer for the still. Outside watch sessions the old
+  behaviour is unchanged.
 - **Session cap.** A viewing session gets at most
   `wake_when_watched_max_minutes` (default 5, 1–60) of watch-driven live
   time. The window never extends past the cap; afterwards the stream falls

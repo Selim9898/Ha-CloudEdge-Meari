@@ -11,6 +11,7 @@ import asyncio
 import importlib
 import socket
 import sys
+import threading
 import time
 import unittest
 from types import ModuleType, SimpleNamespace
@@ -388,6 +389,136 @@ class LiveLoopCapTests(unittest.TestCase):
         self.assertTrue(coord._watch.capped)
         self.assertEqual(coord._live_deadline, deadline)
         coord._send_wake.assert_called_once_with()
+
+
+class KeepAliveTests(unittest.TestCase):
+    """Re-wake before the camera's own ~2 min live limit while watched."""
+
+    def setUp(self) -> None:
+        self.coord = coordinator()
+
+    def tick(self, clients: int, now: float) -> None:
+        self.coord._stream_server.set(clients, now)
+        with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
+            self.coord._update_watch_wake(now)
+        worker = self.coord._keepalive_thread
+        if worker is not None:
+            worker.join(timeout=1)
+
+    def watch_until(self, end: float, start: float = T0) -> None:
+        """Loop ticks every 5 s (the real loop ticks every 0.2-0.5 s)."""
+        now = start
+        while now <= end:
+            self.tick(1, now)
+            now += 5.0
+
+    def test_re_wakes_every_keepalive_interval_while_watched(self) -> None:
+        interval = WATCH.WATCH_KEEPALIVE_S
+        self.assertLess(interval, 120.0)  # before the camera's own ~2 min limit
+        self.watch_until(T0 + interval - 5)
+        self.coord._send_wake.assert_called_once_with()  # the initial wake
+        self.watch_until(T0 + interval + 30, start=T0 + interval)
+        self.assertEqual(self.coord._send_wake.call_count, 2)
+        self.watch_until(T0 + 2 * interval, start=T0 + interval + 35)
+        self.assertEqual(self.coord._send_wake.call_count, 3)
+
+    def test_counts_from_the_last_wake_of_any_kind(self) -> None:
+        self.watch_until(T0 + 50)
+        self.coord._last_wake_sent = T0 + 50  # e.g. the Wake button
+        self.watch_until(T0 + 45 + WATCH.WATCH_KEEPALIVE_S, start=T0 + 55)
+        self.coord._send_wake.assert_called_once_with()
+        self.tick(1, T0 + 50 + WATCH.WATCH_KEEPALIVE_S)
+        self.assertEqual(self.coord._send_wake.call_count, 2)
+
+    def test_no_keepalive_once_capped(self) -> None:
+        cap = self.coord._watch_wake_max_s
+        self.tick(1, T0)
+        self.tick(1, T0 + cap)
+        self.assertTrue(self.coord._watch.capped)
+        self.coord._live_deadline = T0 + cap + 100  # e.g. a motion window
+        self.tick(1, T0 + cap + 50)
+        self.coord._send_wake.assert_called_once_with()
+
+
+class FakeMuxer:
+    def __init__(self) -> None:
+        self.stills = 0
+
+    def start(self, *_args, **_kwargs) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def write_video(self, *_args, **_kwargs) -> None:
+        self.stills += 1
+
+
+class StallStillTests(unittest.TestCase):
+    """A stalled watched session shows the idle still, not a frozen frame."""
+
+    def setUp(self) -> None:
+        self.coord = coordinator()
+        now = time.monotonic()
+        self.coord._stream_server.set(1, now)
+        self.coord._update_watch_wake(now)  # watch session, live window open
+        self.coord._set_session_active(True)
+
+    def stall(self, seconds: float) -> None:
+        self.coord._last_live_frame_time = time.monotonic() - seconds
+
+    def test_covers_only_after_frames_stop_for_a_while(self) -> None:
+        self.stall(1.0)
+        self.assertFalse(self.coord._cover_stall_with_still())
+        self.stall(WATCH.WATCH_STALL_STILL_S + 1)
+        self.assertTrue(self.coord._cover_stall_with_still())
+        self.assertTrue(self.coord._idle_covering)
+
+    def test_not_before_the_first_live_frame(self) -> None:
+        self.coord._last_live_frame_time = 0.0  # still waking
+        self.assertFalse(self.coord._cover_stall_with_still())
+
+    def test_not_outside_a_watch_session(self) -> None:
+        self.coord._stream_server.set(0, time.monotonic())
+        self.stall(WATCH.WATCH_STALL_STILL_S + 1)
+        self.assertFalse(self.coord._cover_stall_with_still())
+
+    def test_awake_is_off_while_the_still_covers(self) -> None:
+        self.stall(WATCH.WATCH_STALL_STILL_S + 1)
+        self.coord._cover_stall_with_still()
+        self.coord._refresh_camera_awake()
+        self.assertFalse(self.coord.camera_awake)
+
+    def test_live_resumes_on_a_keyframe(self) -> None:
+        streamer = Mock()
+        self.coord._p2p_streamer = streamer
+        self.coord._stream_started_keyframe = True
+        self.coord._idle_covering = True
+        self.coord._take_back_from_idle()
+        self.assertFalse(self.coord._idle_covering)
+        self.assertFalse(self.coord._stream_started_keyframe)
+        streamer.request_keyframe.assert_called_once_with()
+
+    def run_idle_loop(self) -> int:
+        coord = self.coord
+        coord._running = True
+        coord._idle_video_frame = b"keyframe"
+        coord._muxer = FakeMuxer()
+        coord._stream_server.bootstrap_state = lambda: {"ready": True}
+        worker = threading.Thread(target=coord._idle_loop, daemon=True)
+        worker.start()
+        time.sleep(0.4)
+        coord._idle_stop.set()
+        worker.join(timeout=2)
+        return coord._muxer.stills
+
+    def test_idle_loop_serves_the_still_during_a_stall(self) -> None:
+        self.stall(WATCH.WATCH_STALL_STILL_S + 1)
+        self.assertGreater(self.run_idle_loop(), 0)
+
+    def test_idle_loop_stays_out_while_live_frames_flow(self) -> None:
+        self.stall(0.0)
+        self.assertEqual(self.run_idle_loop(), 0)
 
 
 class StreamServerClientCountTests(unittest.TestCase):

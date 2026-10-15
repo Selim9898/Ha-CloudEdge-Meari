@@ -552,7 +552,7 @@ class CloudEdgeMeariCoordinator(WatchWakeMixin, CoordinatorStateMixin):
                 self._stream_server.reset_bootstrap()
                 next_frame = time.monotonic()
 
-            if self._session_active:
+            if self._session_active and not self._cover_stall_with_still():
                 next_frame = time.monotonic()
                 self._idle_stop.wait(0.1)
                 continue
@@ -822,6 +822,8 @@ class CloudEdgeMeariCoordinator(WatchWakeMixin, CoordinatorStateMixin):
                 self._stream_started_keyframe = False
                 self._reset_live_mux_timing()
 
+            if self._idle_covering:
+                self._take_back_from_idle()
             self._codec_params.update(self._video_codec, payload)
             if not self._codec_params.ready(self._video_codec):
                 return
@@ -849,7 +851,7 @@ class CloudEdgeMeariCoordinator(WatchWakeMixin, CoordinatorStateMixin):
                 self._p2p_streamer.request_stop()
 
         def on_audio(payload: bytes) -> None:
-            if not stream_allowed():
+            if not stream_allowed() or self._idle_covering:
                 return
             self._last_p2p_audio_time = time.monotonic()
             self._muxer.write_audio(payload)
