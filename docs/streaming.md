@@ -209,18 +209,30 @@ to be live:
 - While clients stay connected the live window is extended to
   `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
   10 s after the last client leaves.
-- **Battery cap.** A viewing session gets at most
+- **Session cap.** A viewing session gets at most
   `wake_when_watched_max_minutes` (default 10, 1–60) of watch-driven live
   time. The window never extends past the cap; afterwards the stream falls
-  back to the idle still. Short client gaps (< `WATCH_SESSION_GAP_S`, 30 s)
-  belong to the same session, and extra connections during a capped session
-  do **not** reset it, so clients that reconnect in a loop or hold the port
-  permanently cannot keep the camera awake. The session (and cap) resets
-  when all clients have been gone for 30 s, on an explicit wake, or when
-  the option is turned back on.
+  back to the idle still. Client gaps under `WATCH_SESSION_GAP_S` (30 s)
+  belong to the same session.
+- **A capped session is sticky.** It only ends after every client has been
+  gone for `WATCH_CAPPED_QUIET_S` (5 min). Extra connections, a client that
+  reconnects after a backoff (HA's stream worker restarting after the
+  live→idle mux restart), an explicit Wake, and toggling the option do
+  **not** re-arm it. An explicit Wake still gives its normal window (the
+  motion timeout); it just does not start a new watch session.
+- **Rolling budget.** Watch-driven live time is also limited to
+  `WATCH_BUDGET_CAPS_PER_WINDOW` (3) session caps per rolling hour
+  (`WATCH_BUDGET_WINDOW_S`). The budget counts the live time each
+  extension actually grants, so motion or button windows that already cover
+  the time are not charged. Once used up, new sessions are capped at once.
+- **Survives reloads.** Session and budget state (`WatchState`) live in
+  `hass.data[DOMAIN]["_watch_wake"][serial]`, not on the coordinator, so an
+  options save or entry reload (which rebuilds the coordinator and the
+  stream server) does not re-arm the cap. An HA restart does.
 - Motion and the Wake button keep their own windows; wake when watched only
   ever extends, never shortens, the deadline.
-- `live_until` reports the cap end while a viewer keeps watching.
+- `live_until` reports the cap (or budget) end while a viewer keeps
+  watching.
 
 The integration itself never connects to its stream server (snapshots are
 converted from in-memory keyframes), so every counted client is a real
@@ -229,12 +241,13 @@ the debug harness's ffplay, and so on.
 
 **Battery cost of always-connected clients.** HA's *Preload stream*,
 Frigate, and a go2rtc producer kept warm hold the TCP connection open
-permanently. Each such client costs up to one cap of live video per viewing
-session: after every HA/Frigate restart, after every reconnect that follows
-a gap of 30 s or more, and after every explicit wake. Once capped, a human
-viewer opening the camera while such a client stays connected sees the
-idle still until they press Wake. If a client is always connected, disable
-the option and rely on motion and the Wake button.
+permanently. Each such client costs one cap of live video per viewing
+session: after every HA restart, and after every return following 5 min or
+more without clients. The rolling budget bounds the total at three caps an
+hour. Once capped, a human viewer opening the camera while such a client
+stays connected sees the idle still; pressing Wake gives them the normal
+wake window. If a client is always connected, disable the option and rely
+on motion and the Wake button.
 
 Because the watched camera is often mid-wake with nothing to broadcast, the
 stream server also notices closed clients without sending to them: each

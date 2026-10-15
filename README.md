@@ -235,17 +235,19 @@ Camera*. It is on by default; turn it off with the *Wake when watched*
 switch or in the camera's options.
 
 Live video costs battery, so each continuous viewing session gets at most
-10 minutes (configurable, 1–60) of watch-driven live time. After that the
-stream falls back to the idle still until every client has been gone for
-~30 s or you press *Wake Camera* (which starts a fresh session). Live
-continues ~10 s after the last client leaves.
+10 minutes (configurable, 1–60) of watch-driven live time, and watch-driven
+live time is capped at three sessions' worth per rolling hour. After the
+cap the stream falls back to the idle still until every client has been
+gone for 5 minutes; *Wake Camera* still gives a normal wake window. Live
+continues ~10 s after the last client leaves. Reloading the integration
+does not reset these limits; restarting HA does.
 
 > ⚠️ **Clients that hold the stream open count as watching.** HA's
 > *Preload stream* option, Frigate, and go2rtc producers kept warm all keep
 > a connection open permanently. With wake when watched on, each of those
-> wakes the camera for up to the cap every time it (re)connects after a gap,
-> including after every HA or Frigate restart, and stops further wakes for
-> human viewers until the session resets. If such a client is always
+> wakes the camera for one cap after every HA restart and after every
+> return from a 5-minute absence, and stops further wakes for human viewers
+> until the session resets. If such a client is always
 > connected, turn the switch off (or lower the cap) and rely on motion and
 > the Wake button.
 
