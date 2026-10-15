@@ -179,6 +179,22 @@ Cameras that don't expose a feature simply won't show its entity.
 | Service          | Description |
 |------------------|-------------|
 | `cloudplus.ptz`  | Move (`left`/`right`/`up`/`down`) or stop a PTZ camera. Target a `camera` entity. See [services.yaml](custom_components/cloudplus/services.yaml). |
+| `cloudplus.talk_tone` | Admin only. Play a test tone (default 800 Hz, 2 s, max 5 s) on the camera speaker through the talk channel. KCP-path cameras only. |
+
+### Talk (websocket, admin only)
+
+Clients can talk through the camera speaker over HA's websocket API, keyed
+by the camera `entity_id`. All three commands require an **admin** user.
+
+| Command | Payload | Notes |
+|---------|---------|-------|
+| `cloudplus/talk/start` | `entity_id` | Wakes the camera if needed and waits (up to 45 s) for live video. Returns the audio format. |
+| `cloudplus/talk/audio` | `entity_id`, `audio` | Base64 G.711 µ-law, 8 kHz mono, a non-zero multiple of 320 bytes (40 ms frames), at most 1 s per message. |
+| `cloudplus/talk/stop` | `entity_id` | Queued audio still plays, then talk closes. |
+
+Talk stops on its own after 2 s without audio and after 60 s at most. It
+keeps the camera live while talking and counts toward the *Wake when
+watched* hourly budget. Legacy PPCS cameras are not supported yet.
 
 ---
 

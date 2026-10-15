@@ -32,6 +32,7 @@ from .const import (
 )
 from .coordinator import CloudEdgeMeariCoordinator
 from .api import MeariApiClient, build_api_client
+from .talk_api import async_register_talk_api
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -347,6 +348,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await coord.async_start()
+    async_register_talk_api(hass)  # admin-only talk websocket + tone service
 
     # Register the PTZ service once per integration.
     if not hass.services.has_service(DOMAIN, SERVICE_PTZ):

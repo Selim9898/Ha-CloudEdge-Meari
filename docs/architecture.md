@@ -33,6 +33,7 @@ root if present.
 | File | Responsibility |
 |------|----------------|
 | `__init__.py` | `async_setup_entry` / `async_unload_entry`, account-vs-camera entry split, V1→V2 migration, PTZ service registration. |
+| `talk_api.py` | Admin-only talk websocket commands (`cloudplus/talk/*`) and the `talk_tone` service. |
 | `config_flow.py` | User-facing config + options flows. One account entry, N child camera entries created via `SOURCE_IMPORT`. |
 | `const.py` | All config keys, defaults, app-profile list, alarm-type table, IoT codes. |
 | `api.py` | Meari HTTP client — login, device list, IoT model fetch, wake, OpenAPI bridge. |

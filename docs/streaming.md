@@ -357,6 +357,11 @@ Talk (HA → camera speaker) rides the running live session; wire format in
 - Talk frames are sent with a 1 s KCP expiry so late audio is dropped, not
   retransmitted (see protocol.md, KCP).
 - PPCS cameras and cameras whose capability says `vtk` 0 or 2 are refused.
+- **HA surface** (`talk_api.py`, admin only): websocket
+  `cloudplus/talk/start` / `audio` (base64 µ-law, multiples of 320 bytes,
+  ≤ 1 s per message) / `stop`, keyed by camera `entity_id`, and the admin
+  service `cloudplus.talk_tone` (sine tone, default 800 Hz / 2 s, max 5 s)
+  for supervised testing.
 
 ## Timing rules
 
