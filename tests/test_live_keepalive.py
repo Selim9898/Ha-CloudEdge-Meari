@@ -11,7 +11,10 @@ import base64
 import importlib
 import inspect
 import json
+import socket
+import time
 import unittest
+from unittest.mock import patch
 
 from debug_tools.bootstrap import _bootstrap_integration_modules
 
@@ -132,6 +135,58 @@ class SignalingFramesTests(unittest.TestCase):
         self.assertEqual((frame["method"], frame["cmd"]), (MSGSVR.METHOD_DIRECT, MSGSVR.CMD_STATUS))
         self.assertEqual(list(frame["json"]), ["action", "uuid", "sid"])
         self.assertEqual(frame["json"]["action"], "status")
+
+
+class SignalingReplyReadTests(unittest.TestCase):
+    """Keep-alive replies are read whole, or the connection is reset."""
+
+    def setUp(self) -> None:
+        self.ours, self.server = socket.socketpair()
+        self.addCleanup(self.server.close)
+        self.addCleanup(self.ours.close)
+        self.sig = SIGNALING.MsgSvrClient("127.0.0.1", 1)
+        self.sig.sock = self.ours
+        self.sig.uuid = "client-uuid"
+        self.sig.token = "token"
+        for name, value in (("SIGNAL_REPLY_WAIT_S", 0.2), ("SIGNAL_FRAME_TIMEOUT_S", 0.3)):
+            patcher = patch.object(SIGNALING, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def reply(self) -> bytes:
+        return MSGSVR.build_frame(MSGSVR.NODE_CLIENT, MSGSVR.METHOD_ROUTED,
+                                  MSGSVR.CMD_HEARTBEAT, '{"wan":"x"}')
+
+    def test_no_reply_consumes_nothing(self) -> None:
+        started = time.monotonic()
+        self.sig.send_heartbeat(read_response=True)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertFalse(self.sig.broken)
+        self.assertIs(self.sig.sock, self.ours)
+
+    def test_whole_reply_is_read_and_the_stream_stays_in_sync(self) -> None:
+        self.server.sendall(self.reply() + self.reply())
+        self.sig.send_heartbeat(read_response=True)
+        self.assertFalse(self.sig.broken)
+        # The next frame starts exactly where the first ended.
+        self.assertEqual(MSGSVR.recv_frame(self.ours)["cmd"], MSGSVR.CMD_HEARTBEAT)
+
+    def test_partial_reply_resets_the_connection(self) -> None:
+        frame = self.reply()
+        self.server.sendall(frame[: len(frame) // 2])
+        self.sig.send_heartbeat(read_response=True)
+        self.assertTrue(self.sig.broken)
+        self.assertIsNone(self.sig.sock)
+
+    def test_garbage_resets_the_connection(self) -> None:
+        self.server.sendall(b"\x00" * 32)
+        self.sig.send_webrtc_keepalive(read_response=True)  # no webrtcsvr: no-op
+        self.sig.send_status_keepalive("device-uuid", read_response=True)
+        self.assertTrue(self.sig.broken)
+
+    def test_live_loop_reconnects_on_a_broken_signaling_connection(self) -> None:
+        source = inspect.getsource(LIVE_SESSION.LiveSessionMixin._stream_with_turn)
+        self.assertTrue('getattr(sig, "broken", False)' in source)
 
 
 if __name__ == "__main__":

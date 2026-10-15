@@ -674,6 +674,11 @@ class LiveSessionMixin:
             snap_keepalive.tick()
 
             signal_keepalive.tick(now)
+            if getattr(sig, "broken", False):
+                # A keep-alive reply was cut off mid-frame: the MsgSvr stream
+                # is out of sync. Reconnect (and re-register) the session.
+                _LOGGER.warning("Signaling connection reset; reconnecting session")
+                return (self._video_count, self._total_bytes)
 
             if self._keyframe_request.is_set():
                 self._keyframe_request.clear()

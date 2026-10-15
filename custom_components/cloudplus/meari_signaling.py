@@ -23,6 +23,8 @@ Encryption: 3DES ECB with key "__#!HIRCloud5.0!#__" (padded to 24 bytes with zer
 
 import base64
 import json
+import logging
+import select
 import socket
 import threading
 import time
@@ -41,6 +43,22 @@ from .msgsvr_codec import (
     recv_frame as _recv_frame,
 )
 from .turn_client import close_socket
+
+_LOGGER = logging.getLogger(__name__)
+
+# Keep-alive replies: wait this long for a reply to start, then give a reply
+# that has started this long to complete. A partial read desynchronises the
+# frame stream, so it resets the connection instead.
+SIGNAL_REPLY_WAIT_S = 1.0
+SIGNAL_FRAME_TIMEOUT_S = 5.0
+
+
+def _wait_readable(sock, timeout_s: float) -> bool:
+    if hasattr(select, "poll"):
+        poller = select.poll()
+        poller.register(sock, select.POLLIN)
+        return bool(poller.poll(int(timeout_s * 1000)))
+    return bool(select.select([sock], [], [], timeout_s)[0])
 
 
 class MsgSvrClient:
@@ -62,6 +80,8 @@ class MsgSvrClient:
         self._registered_at = time.monotonic()
         self._register_extra: dict[str, str | int] = {}
         self._io_lock = threading.Lock()
+        # Set when a reply was cut off mid-frame; the session must reconnect.
+        self.broken = False
 
     def _session_suffix(self) -> str:
         return f"{self.session_index:02d}"
@@ -75,6 +95,7 @@ class MsgSvrClient:
         self.sock.settimeout(float(timeout_s))
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         self.sock.connect((self.server_host, self.server_port))
+        self.broken = False
 
     def _send_unlocked(self, method, cmd, payload_json):
         """Build and send a frame."""
@@ -134,19 +155,41 @@ class MsgSvrClient:
         """Send one frame and read (and drop) one reply, briefly."""
         with self._io_lock:
             self._send_unlocked(method, cmd, payload_json)
-            if not read_response or self.sock is None:
+            if read_response and self.sock is not None:
+                self._read_reply_or_reset()
+
+    def _read_reply_or_reset(self):
+        """Read one whole reply frame, or reset the connection.
+
+        Nothing is consumed unless a reply starts within
+        SIGNAL_REPLY_WAIT_S. Once it starts, it must complete within
+        SIGNAL_FRAME_TIMEOUT_S; a partial or malformed frame leaves the
+        stream out of sync, so the socket is closed and ``broken`` set (the
+        live session then reconnects and registers again).
+        """
+        sock = self.sock
+        try:
+            if not _wait_readable(sock, SIGNAL_REPLY_WAIT_S):
                 return
-            old_timeout = self.sock.gettimeout()
-            try:
-                self.sock.settimeout(1.0)
-                _recv_frame(self.sock)
-            except (OSError, ValueError):
-                pass
-            finally:
-                try:
-                    self.sock.settimeout(old_timeout)
-                except OSError:
-                    pass
+        except (OSError, ValueError):
+            return
+        old_timeout = sock.gettimeout()
+        try:
+            sock.settimeout(SIGNAL_FRAME_TIMEOUT_S)
+            _recv_frame(sock)
+        except (OSError, ValueError) as exc:
+            _LOGGER.warning(
+                "MsgSvr reply incomplete (%s); resetting the signaling connection",
+                exc,
+            )
+            self.broken = True
+            self.sock = None
+            close_socket(sock)
+            return
+        try:
+            sock.settimeout(old_timeout)
+        except OSError:
+            pass
 
     def recv_webrtc_content(self):
         """Receive a webrtcsvr response and decode the inner content."""

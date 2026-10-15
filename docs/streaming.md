@@ -125,7 +125,12 @@ shows what the app sends while live and the engine now matches it
 - No periodic `START_LIVE` (see below) and no HTTP wake while live.
 
 All MsgSvr sends run on one short-lived worker; replies are read and
-dropped so the media loop never blocks on the TCP socket.
+dropped so the media loop never blocks on the TCP socket. A reply is read
+whole or not at all: nothing is consumed unless it starts within 1 s, and
+once started it must complete within 5 s. A partial or malformed frame
+would leave the frame stream out of sync, so the client closes the socket
+and sets `broken`; the live loop then returns and the session reconnects
+and registers again.
 
 Known differences left on purpose (next levers if live still stops):
 
