@@ -123,7 +123,7 @@ Open any camera device → **Configure**:
 |-------------------|-------------|
 | Video password    | If you enabled **E2EE / video encryption** in the app, enter that 6-digit code here so the stream can be decrypted. Leave empty otherwise. |
 | Wake when watched | Battery cameras only, default on. Same setting as the *Wake when watched* switch. |
-| Wake when watched: max minutes | Live minutes per viewing session before falling back to the idle still (1–60, default 10). |
+| Wake when watched: max minutes | Live minutes per viewing session before falling back to the idle still (1–60, default 5). |
 
 ### Per-account options
 
@@ -235,12 +235,21 @@ Camera*. It is on by default; turn it off with the *Wake when watched*
 switch or in the camera's options.
 
 Live video costs battery, so each continuous viewing session gets at most
-10 minutes (configurable, 1–60) of watch-driven live time, and watch-driven
-live time is capped at three sessions' worth per rolling hour. After the
+5 minutes (configurable, 1–60) of watch-driven live time, and watch-driven
+live time is capped at three sessions' worth per rolling hour (15 minutes
+by default). After the
 cap the stream falls back to the idle still until every client has been
 gone for 5 minutes; *Wake Camera* still gives a normal wake window. Live
 continues ~10 s after the last client leaves. Reloading the integration
 does not reset these limits; restarting HA does.
+
+How long a viewer keeps the camera live depends on how HA plays the
+stream. A **WebRTC** viewer (go2rtc, the default when available) releases
+the stream within ~20 s of closing the dashboard. An **HLS** viewer does
+not: HA's stream worker keeps the source open for ~5 minutes after the last
+viewer leaves, and the integration cannot tell that apart from someone
+still watching. So with HLS every glance costs up to 5 minutes of live
+video, which is why the default cap is 5 minutes.
 
 > ⚠️ **Clients that hold the stream open count as watching.** HA's
 > *Preload stream* option, Frigate, and go2rtc producers kept warm all keep

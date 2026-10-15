@@ -19,7 +19,9 @@ CONF_WATCH_WAKE_MAX_MINUTES = "wake_when_watched_max_minutes"
 
 DEFAULT_MOTION_TIMEOUT = 120
 DEFAULT_WATCH_WAKE = True
-DEFAULT_WATCH_WAKE_MAX_MINUTES = 10
+# HA's HLS stream worker keeps its source open ~5 min after the last viewer
+# (OUTPUT_IDLE_TIMEOUT), so a longer default would mostly buy idle live time.
+DEFAULT_WATCH_WAKE_MAX_MINUTES = 5
 WATCH_WAKE_MAX_MINUTES_RANGE = (1, 60)
 DEFAULT_COUNTRY_CODE = "FR"
 DEFAULT_PHONE_CODE = "33"

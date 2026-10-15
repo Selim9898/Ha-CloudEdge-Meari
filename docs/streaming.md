@@ -210,7 +210,7 @@ to be live:
   `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
   10 s after the last client leaves.
 - **Session cap.** A viewing session gets at most
-  `wake_when_watched_max_minutes` (default 10, 1–60) of watch-driven live
+  `wake_when_watched_max_minutes` (default 5, 1–60) of watch-driven live
   time. The window never extends past the cap; afterwards the stream falls
   back to the idle still. Client gaps under `WATCH_SESSION_GAP_S` (30 s)
   belong to the same session.
@@ -238,6 +238,21 @@ The integration itself never connects to its stream server (snapshots are
 converted from in-memory keyframes), so every counted client is a real
 consumer: HA's `stream` worker or go2rtc for a dashboard viewer, Frigate,
 the debug harness's ffplay, and so on.
+
+**"Connected" is not "watching".** The only signal is an open TCP client.
+How long that outlives the human viewer depends on the player:
+
+- **WebRTC** through go2rtc: go2rtc drops its producer about 20 s after the
+  last WebRTC consumer leaves, so live ends ~30 s after the viewer.
+- **HLS** through HA's `stream` worker: the worker keeps the source open
+  until `OUTPUT_IDLE_TIMEOUT` (300 s) after the last HLS request, so a
+  glance at the dashboard keeps the camera live for ~5 min.
+
+Both connect from the HA host with an ffmpeg/libav reader, so there is no
+honest way to tell them apart (or to tell an idle HLS worker from a
+viewer). The default cap is therefore 5 min: longer would mostly buy live
+time nobody watches after an HLS glance, and the rolling budget (3 caps)
+works out to 15 min of watch-driven live per hour.
 
 **Battery cost of always-connected clients.** HA's *Preload stream*,
 Frigate, and a go2rtc producer kept warm hold the TCP connection open

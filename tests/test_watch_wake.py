@@ -107,9 +107,12 @@ class WatchWakeTests(unittest.TestCase):
         with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
             self.coord._update_watch_wake(now)
 
-    def test_defaults_on_with_a_ten_minute_cap(self) -> None:
+    def test_defaults_on_with_a_five_minute_cap(self) -> None:
+        # Sized for HA's HLS worker, which holds the source ~5 min after the
+        # last viewer; the hourly budget is three caps (15 min).
         self.assertTrue(self.coord.watch_wake_enabled)
-        self.assertEqual(self.cap, 600.0)
+        self.assertEqual(self.cap, 300.0)
+        self.assertEqual(self.coord._watch_budget_s(), 900.0)
 
     def test_no_viewer_no_wake(self) -> None:
         self.watch(0, T0)
@@ -309,7 +312,7 @@ class WatchWakeOptionsTests(unittest.TestCase):
         self.assertEqual(coord._watch_wake_max_s, 180.0)
 
     def test_cap_is_clamped(self) -> None:
-        for raw, minutes in ((0, 1), (999, 60), ("bad", 10), (None, 10)):
+        for raw, minutes in ((0, 1), (999, 60), ("bad", 5), (None, 5)):
             with self.subTest(raw=raw):
                 options = {CONST.CONF_WATCH_WAKE_MAX_MINUTES: raw}
                 self.assertEqual(WATCH.watch_wake_max_minutes(options), minutes)

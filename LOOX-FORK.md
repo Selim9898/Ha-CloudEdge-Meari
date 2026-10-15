@@ -21,6 +21,22 @@ Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 The manifest still says `0.3.3`. A version bump triggers the release
 workflow, so we leave it alone.
 
+### Wake when watched: what to expect at the test home
+
+- Opening the camera wakes it (about 15–30 s to live) and keeps it live
+  while the stream is open, up to 5 min per viewing session and 15 min of
+  watch-driven live per rolling hour.
+- **WebRTC viewers release the camera within ~20 s** of closing the view.
+  **HLS viewers hold it live ~5 min** after closing, because HA's stream
+  worker keeps the source open that long (`OUTPUT_IDLE_TIMEOUT` = 300 s).
+  The integration cannot tell the two apart, which is why the cap defaults
+  to 5 min. Check which one the Loox app and the HA dashboard actually use.
+- Anything that holds the stream open permanently (HA *Preload stream*,
+  Frigate, a warm go2rtc producer) uses one cap after each HA restart and
+  then blocks further watch wakes until it has been gone for 5 min. Turn
+  the *Wake when watched* switch off if such a client exists.
+- After the cap, Wake still gives the normal wake window (Motion Timeout).
+
 ## Install on a Home Assistant box
 
 **HACS (custom repository)**
