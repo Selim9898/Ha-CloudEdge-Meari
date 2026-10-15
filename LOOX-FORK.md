@@ -59,7 +59,8 @@ workflow, so we leave it alone.
   every 21 s, status query every 120 s, START_LIVE only once); the 90 s
   re-wake was removed because the app never wakes during live. If live
   stalls anyway, viewers get the idle still after 5 s instead of a frozen
-  frame. Confirm past 2:13 in the next live test.
+  frame and a recovery wake goes out at once (at most every 30 s). Confirm
+  past 2:13 in the next live test, and check the log for "recovery wake".
 
 ### Live keep-alive after the app capture (to verify at the test home)
 

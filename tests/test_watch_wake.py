@@ -405,6 +405,63 @@ class NoPeriodicWakeTests(unittest.TestCase):
         coord._send_wake.assert_called_once_with()
 
 
+class RecoveryWakeTests(unittest.TestCase):
+    """A watched live session that stalls gets a prompt, rate-limited wake."""
+
+    def setUp(self) -> None:
+        self.coord = coordinator()
+
+    def tick(self, now: float, *, frames: bool) -> None:
+        if frames:
+            self.coord._last_live_frame_time = now
+        self.coord._stream_server.set(1, now)
+        with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
+            self.coord._update_watch_wake(now)
+        worker = self.coord._recovery_wake_thread
+        if worker is not None:
+            worker.join(timeout=1)
+
+    def test_stall_triggers_a_wake_within_seconds(self) -> None:
+        now = T0
+        while now < T0 + 60:  # live and healthy
+            self.tick(now, frames=True)
+            now += 0.5
+        self.coord._send_wake.assert_called_once_with()  # only the initial wake
+        stall_start = now
+        while now < stall_start + WATCH.WATCH_STALL_STILL_S + 1.0:
+            self.tick(now, frames=False)
+            now += 0.5
+        self.assertEqual(self.coord._send_wake.call_count, 2)
+
+    def test_recovery_wakes_are_rate_limited(self) -> None:
+        wakes: list[float] = []
+        self.coord._send_wake.side_effect = lambda: wakes.append(clock[0])
+        clock = [T0]
+        while clock[0] < T0 + 100:
+            self.tick(clock[0], frames=clock[0] < T0 + 40)  # stalls at +40 s
+            clock[0] += 0.5
+        # Initial wake, then recovery wakes at least 30 s apart while stalled.
+        self.assertEqual(wakes[0], T0)
+        recovery = wakes[1:]
+        self.assertGreaterEqual(len(recovery), 2)
+        self.assertLessEqual(recovery[0] - (T0 + 40), WATCH.WATCH_STALL_STILL_S + 1.0)
+        gaps = [b - a for a, b in zip(recovery, recovery[1:])]
+        self.assertTrue(all(g >= WATCH.WATCH_WAKE_RETRY_S for g in gaps))
+
+    def test_no_recovery_wake_once_capped(self) -> None:
+        cap = self.coord._watch_wake_max_s
+        now = T0
+        while now <= T0 + cap:
+            self.tick(now, frames=True)
+            now += 1.0
+        self.assertTrue(self.coord._watch.capped)
+        self.coord._live_deadline = now + 100  # e.g. a motion window
+        for _ in range(20):
+            self.tick(now, frames=False)
+            now += 1.0
+        self.coord._send_wake.assert_called_once_with()
+
+
 class FakeMuxer:
     def __init__(self) -> None:
         self.stills = 0

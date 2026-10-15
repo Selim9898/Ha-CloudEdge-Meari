@@ -245,10 +245,16 @@ to be live:
 - While clients stay connected the live window is extended to
   `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
   10 s after the last client leaves.
-- **No wakes while live.** Only the initial wake is sent. The official app
-  sends no HTTP wake during live; the session is kept up by the P2P and
-  MsgSvr keep-alives (see "Keeping a live session alive"). An earlier
-  90 s re-wake was removed after the app capture.
+- **No periodic wakes while live.** The official app sends no HTTP wake
+  during live; the session is kept up by the P2P and MsgSvr keep-alives
+  (see "Keeping a live session alive"). An earlier 90 s re-wake was removed
+  after the app capture.
+- **Recovery wake.** If live video stops for more than 5 s while a watched
+  session is within its cap and budget, the coordinator sends a wake at
+  once (off the live loop, at most one in flight, at least
+  `WATCH_WAKE_RETRY_S` = 30 s apart, counting the initial wake). If the
+  keep-alives ever regress, a stop then costs seconds instead of waiting
+  for the 40 s source-idle reconnect.
 - **Still over stalls.** If live frames stop for more than
   `WATCH_STALL_STILL_S` (5 s) during a watch session, the idle loop takes
   the muxer back and serves the idle still (Camera Awake goes off, camera

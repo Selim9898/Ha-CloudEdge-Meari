@@ -106,6 +106,7 @@ class WatchWakeMixin:
     """Coordinator mixin: keep the live window open while clients watch."""
 
     _idle_covering = False  # the idle loop is covering a live stall
+    _recovery_wake_thread: threading.Thread | None = None
 
     def _init_watch_wake(self, options: Mapping[str, Any] | None) -> None:
         options = options or {}
@@ -192,9 +193,19 @@ class WatchWakeMixin:
         was_live = now < self._live_deadline
         # Open the window before waking: the wake can block for a while.
         self._extend_watch_window(now, cap_end)
-        # Only the initial wake: the official app sends no wake while live
-        # (the live session itself is kept up by the P2P/MsgSvr keep-alives).
-        if was_live or now - state.last_wake < WATCH_WAKE_RETRY_S:
+        # No periodic wake: the official app sends none while live (the session
+        # is kept up by the P2P/MsgSvr keep-alives). Only a stalled watched
+        # live session gets a recovery wake, so a regression costs seconds.
+        if was_live:
+            if (
+                self._last_live_frame_time > 0.0
+                and now - self._last_live_frame_time > WATCH_STALL_STILL_S
+                and now - state.last_wake >= WATCH_WAKE_RETRY_S
+            ):
+                state.last_wake = now
+                self._send_recovery_wake(now - self._last_live_frame_time)
+            return
+        if now - state.last_wake < WATCH_WAKE_RETRY_S:
             return
         state.last_wake = now
         _LOGGER.info(
@@ -207,6 +218,24 @@ class WatchWakeMixin:
         # already in the past and the next loop tick wakes again.
         if self._stream_server.client_count > 0:
             self._extend_watch_window(time.monotonic(), cap_end)
+
+    def _send_recovery_wake(self, stalled_s: float) -> None:
+        """Wake a watched camera whose live video stopped (off the live loop)."""
+        worker = self._recovery_wake_thread
+        if worker is not None and worker.is_alive():
+            return
+        _LOGGER.info(
+            "Wake when watched: no live video from %s for %.0fs; sending a "
+            "recovery wake",
+            self._sn_num,
+            stalled_s,
+        )
+        self._recovery_wake_thread = threading.Thread(
+            target=self._send_wake,
+            name=f"cloudplus_recovery_wake_{self._sn_num}",
+            daemon=True,
+        )
+        self._recovery_wake_thread.start()
 
     def _cover_stall_with_still(self) -> bool:
         """True while the idle still should cover a stalled watched session."""
