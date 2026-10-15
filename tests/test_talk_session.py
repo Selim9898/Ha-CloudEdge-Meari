@@ -99,22 +99,59 @@ class TalkChannelTests(unittest.TestCase):
     def test_sequence_continues_across_talk_sessions(self) -> None:
         self.talk.begin()
         self.talk.push(b"\x00" * FRAME * 3)
+        self.drain()  # open on the wire
         self.talk.stop()
         self.run_loop(1.0)
         self.talk.begin()
         self.talk.push(b"\x00" * FRAME * 2)
+        self.drain()
         self.talk.stop()
         self.run_loop(1.0)
         self.assertEqual(self.wire.seqs(), [0, 1, 2, 3, 4])
         self.assertEqual(self.wire.kinds().count("open"), 2)
         self.assertEqual(self.wire.kinds().count("close"), 2)
 
-    def test_stop_plays_queued_audio_then_closes_once(self) -> None:
+    def test_stop_after_open_plays_due_audio_then_closes_once(self) -> None:
+        self.talk.begin()
+        self.talk.push(b"\x00" * FRAME * 4)
+        self.drain()  # open
+        self.talk.stop()
+        self.run_loop(1.0)
+        self.assertEqual(self.wire.kinds(), ["open"] + ["frame"] * 4 + ["close"])
+
+    def test_stop_before_open_clears_the_queue(self) -> None:
         self.talk.begin()
         self.talk.push(b"\x00" * FRAME * 4)
         self.talk.stop()
         self.run_loop(1.0)
-        self.assertEqual(self.wire.kinds(), ["open"] + ["frame"] * 4 + ["close"])
+        self.assertEqual(self.wire.kinds(), [])
+
+    def test_leftover_audio_never_reopens_talk_later(self) -> None:
+        self.talk.begin()
+        self.talk.push(b"\x00" * FRAME * 50)
+        self.run_loop(0.4)  # open + a few frames
+        self.talk.session_ended(self.wire.close)  # camera went away mid-talk
+        self.talk.stop()
+        self.clock.now += 3600  # an hour later a motion wake starts live
+        before = len(self.wire.events)
+        self.run_loop(1.0)
+        self.assertEqual(self.wire.events[before:], [])
+        self.assertEqual(self.talk.queued_s, 0.0)
+
+    def test_stale_audio_is_dropped_before_it_is_sent(self) -> None:
+        self.talk.begin()
+        self.talk.push(b"\x00" * FRAME * 10)  # due within 0.4 s
+        self.clock.now += 1.5  # the live loop is not running (reconnecting)
+        self.talk.push(b"\x00" * FRAME * 5)  # fresh audio, keeps talk alive
+        self.clock.now += 1.0  # first batch is now > 2 s past due
+        self.run_loop(1.0)
+        self.assertEqual(self.wire.kinds().count("frame"), 5)
+
+    def test_queue_full_reports_dropped_frames(self) -> None:
+        self.talk.begin()
+        result = self.talk.push(b"\x00" * FRAME * (TALK.TALK_QUEUE_MAX_FRAMES + 7))
+        self.assertEqual(result, (TALK.TALK_QUEUE_MAX_FRAMES, 7))
+        self.assertEqual(self.talk.push(b"\x00" * FRAME), (0, 1))
 
     def test_idle_auto_stop_after_2_s_without_audio(self) -> None:
         self.talk.begin()
@@ -143,7 +180,8 @@ class TalkChannelTests(unittest.TestCase):
 
     def test_push_pads_partial_frames_with_silence(self) -> None:
         self.talk.begin()
-        self.assertEqual(self.talk.push(b"\x00" * (FRAME + 10)), 2)
+        self.assertEqual(self.talk.push(b"\x00" * (FRAME + 10)), (2, 0))
+        self.drain()
         self.talk.stop()
         self.run_loop(1.0)
         last = [d for k, _, d in self.wire.events if k == "frame"][-1]

@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from ..p2p_streamer.talk import TalkChannel
+from ..p2p_streamer.talk import TalkChannel, TalkPushResult
 
 TALK_LIVE_TIMEOUT_S = 45.0
 TALK_LIVE_LINGER_S = 5.0
@@ -64,14 +64,14 @@ class TalkMixin:
         self._talk.begin()
         self._keep_live_for_talk()
 
-    def talk_push(self, ulaw: bytes) -> int:
+    def talk_push(self, ulaw: bytes) -> TalkPushResult:
         """Queue G.711 u-law audio (8 kHz mono) for the camera speaker."""
         try:
-            count = self._talk.push(ulaw)
+            result = self._talk.push(ulaw)
         except RuntimeError as exc:
             raise TalkError(str(exc)) from exc
         self._keep_live_for_talk()
-        return count
+        return result
 
     def talk_stop(self) -> None:
         self._talk.stop()

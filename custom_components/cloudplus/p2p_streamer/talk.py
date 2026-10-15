@@ -18,7 +18,7 @@ import math
 import threading
 import time
 from collections import deque
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from .codec import build_talk_audio_frame, pcm16_to_ulaw
 from .protocol import TALK_FRAME_BYTES, TALK_FRAME_INTERVAL_S, TALK_SAMPLE_RATE
@@ -37,6 +37,16 @@ TALK_MAX_LAG_S = 0.2
 # At most this many frames per loop iteration (the app packs up to 3).
 TALK_MAX_FRAMES_PER_DRAIN = 3
 TALK_QUEUE_MAX_FRAMES = int(TALK_MAX_S / TALK_FRAME_INTERVAL_S)
+# Audio more than this far past its play time is dropped before it is sent
+# (real-time audio is useless late; once sent, KCP must deliver it).
+TALK_STALE_S = 2.0
+
+
+class TalkPushResult(NamedTuple):
+    """Frames accepted into the queue and frames refused (queue full)."""
+
+    queued: int
+    dropped: int
 
 
 class TalkChannel:
@@ -45,7 +55,10 @@ class TalkChannel:
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         self._lock = threading.Lock()
-        self._frames: deque[bytes] = deque(maxlen=TALK_QUEUE_MAX_FRAMES)
+        # (due monotonic time, 320 bytes of u-law); due = when it should play.
+        self._frames: deque[tuple[float, bytes]] = deque()
+        self._last_due = 0.0
+        self._logged_drop = False
         self._want_open = False
         self._session_open = False  # owned by the live loop
         self._started_at = 0.0
@@ -68,31 +81,47 @@ class TalkChannel:
             self._want_open = True
             self._started_at = now
             self._last_activity = now
+            self._last_due = 0.0
+            self._logged_drop = False
             self.stop_reason = ""
 
-    def push(self, ulaw: bytes) -> int:
-        """Queue G.711 u-law audio; returns the number of frames queued."""
+    def push(self, ulaw: bytes) -> TalkPushResult:
+        """Queue G.711 u-law audio; reports frames queued and refused."""
         with self._lock:
             now = self._clock()
             self._expire_locked(now)
             if not self._want_open:
                 raise RuntimeError("no talk session")
             data = bytes(ulaw)
-            count = 0
+            queued = dropped = 0
             for offset in range(0, len(data), TALK_FRAME_BYTES):
+                if len(self._frames) >= TALK_QUEUE_MAX_FRAMES:
+                    dropped += 1
+                    continue
                 chunk = data[offset : offset + TALK_FRAME_BYTES]
                 if len(chunk) < TALK_FRAME_BYTES:  # pad with u-law silence
                     chunk += b"\xff" * (TALK_FRAME_BYTES - len(chunk))
-                self._frames.append(chunk)
-                count += 1
-            if count:
+                self._last_due = max(now, self._last_due + TALK_FRAME_INTERVAL_S)
+                self._frames.append((self._last_due, chunk))
+                queued += 1
+            if queued:
                 self._last_activity = now
-            return count
+            if dropped and not self._logged_drop:
+                self._logged_drop = True
+                _LOGGER.debug("Talk queue full; dropped %d frame(s)", dropped)
+            return TalkPushResult(queued, dropped)
 
     def stop(self, reason: str = "stopped") -> None:
-        """End the talk session; queued audio still plays, then close."""
+        """End the talk session.
+
+        If talk is open on the wire, audio still due plays, then it closes.
+        If it never opened, the queue is cleared: leftover audio must never
+        open talk later (e.g. on the next motion wake).
+        """
         with self._lock:
             self._stop_locked(reason)
+            if not self._session_open:
+                self._frames.clear()
 
     @property
     def active(self) -> bool:
@@ -122,8 +151,8 @@ class TalkChannel:
         with self._lock:
             now = self._clock()
             self._expire_locked(now)
-            # Audio queued before a graceful stop still plays (open, play, close).
-            if (self._want_open or self._frames) and not self._session_open:
+            # Only a wanted talk opens; leftover frames never do.
+            if self._want_open and not self._session_open:
                 self._session_open = True
                 self._next_send = now + TALK_OPEN_LEAD_S
                 actions.append(("open", b""))
@@ -133,7 +162,8 @@ class TalkChannel:
                 budget = TALK_MAX_FRAMES_PER_DRAIN
                 while self._frames and now >= self._next_send and budget > 0:
                     budget -= 1
-                    frame = build_talk_audio_frame(self._frames.popleft(), self._seq)
+                    _due, chunk = self._frames.popleft()
+                    frame = build_talk_audio_frame(chunk, self._seq)
                     self._seq = (self._seq + 1) & 0xFFFFFFFF
                     self._next_send += TALK_FRAME_INTERVAL_S
                     self._last_activity = now
@@ -162,6 +192,8 @@ class TalkChannel:
         with self._lock:
             was_open = self._session_open
             self._session_open = False
+            if not self._want_open:
+                self._frames.clear()
         if was_open and send_close is not None:
             try:
                 send_close()
@@ -176,6 +208,12 @@ class TalkChannel:
         self._want_open = False
 
     def _expire_locked(self, now: float) -> None:
+        stale = 0
+        while self._frames and now - self._frames[0][0] > TALK_STALE_S:
+            self._frames.popleft()
+            stale += 1
+        if stale:
+            _LOGGER.debug("Talk dropped %d stale frame(s)", stale)
         if not self._want_open:
             return
         if now - self._started_at >= TALK_MAX_S:
@@ -205,7 +243,7 @@ class TalkStreamerMixin:
         if self._talk is not None:
             self._talk.begin()
 
-    def talk_push(self, ulaw: bytes) -> int:
+    def talk_push(self, ulaw: bytes) -> TalkPushResult:
         if self._talk is None:
             raise RuntimeError("talk is not available on this session")
         return self._talk.push(ulaw)

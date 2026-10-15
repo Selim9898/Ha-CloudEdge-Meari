@@ -23,12 +23,15 @@ ENTITY = "camera.front_door"
 def fake_coordinator() -> Mock:
     coord = Mock()
     coord.async_talk_start = AsyncMock()
-    coord.talk_push = Mock(side_effect=lambda audio: len(audio) // FRAME)
+    coord.talk_push = Mock(side_effect=lambda audio: TALK.TalkPushResult(len(audio) // FRAME, 0))
     return coord
 
 
 class HandlerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        sleeper = patch.object(TALK_API.asyncio, "sleep", AsyncMock())
+        self.sleep = sleeper.start()
+        self.addCleanup(sleeper.stop)
         self.coord = fake_coordinator()
         self.find = lambda _hass, entity_id: self.coord if entity_id == ENTITY else None
 
@@ -44,7 +47,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_audio_is_queued(self) -> None:
         audio = base64.b64encode(b"\xff" * FRAME * 3).decode()
         result = await TALK_API.talk_audio(None, ENTITY, audio, self.find)
-        self.assertEqual(result, {"queued_frames": 3})
+        self.assertEqual(result, {"queued_frames": 3, "dropped_frames": 0})
 
     async def test_unknown_camera(self) -> None:
         with self.assertRaises(COORD_TALK.TalkError):
@@ -67,6 +70,9 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         self.coord.async_talk_start.assert_awaited_once_with()
         pushed = self.coord.talk_push.call_args.args[0]
         self.assertEqual(len(pushed), 2 * 8000)
+        # Stops only after the tone had time to play (a stop before talk
+        # opens on the wire clears the queue).
+        self.sleep.assert_awaited_once_with(2.0 + TALK_API.TONE_TAIL_S)
         self.coord.talk_stop.assert_called_once_with()
 
     async def test_tone_is_capped_at_5_s(self) -> None:

@@ -189,8 +189,8 @@ by the camera `entity_id`. All three commands require an **admin** user.
 | Command | Payload | Notes |
 |---------|---------|-------|
 | `cloudplus/talk/start` | `entity_id` | Wakes the camera if needed and waits (up to 45 s) for live video. Returns the audio format. |
-| `cloudplus/talk/audio` | `entity_id`, `audio` | Base64 G.711 µ-law, 8 kHz mono, a non-zero multiple of 320 bytes (40 ms frames), at most 1 s per message. |
-| `cloudplus/talk/stop` | `entity_id` | Queued audio still plays, then talk closes. |
+| `cloudplus/talk/audio` | `entity_id`, `audio` | Base64 G.711 µ-law, 8 kHz mono, a non-zero multiple of 320 bytes (40 ms frames), at most 1 s per message. Replies `queued_frames` and `dropped_frames` (queue full). Audio more than 2 s late is dropped. |
+| `cloudplus/talk/stop` | `entity_id` | Audio still due plays, then talk closes. |
 
 Talk stops on its own after 2 s without audio and after 60 s at most. It
 keeps the camera live while talking and counts toward the *Wake when

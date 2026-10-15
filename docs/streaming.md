@@ -357,6 +357,15 @@ Talk (HA → camera speaker) rides the running live session; wire format in
   session ending (reconnect, stop) sends `0x1351` if talk was open; a talk
   still wanted re-opens on the next session. The frame sequence lives on
   the channel, so it continues across sessions like the app's.
+- **No stale or leftover audio.** Each queued frame gets a play-by time
+  (40 ms apart from the push); frames more than `TALK_STALE_S` (2 s) past
+  it are dropped before they reach KCP, whether or not talk is still
+  wanted. Only a wanted talk sends `0x1350`: a stop (or session end) while
+  talk is not open on the wire clears the queue, so leftover audio can
+  never open talk later on, say, a motion wake. A stop while open lets the
+  audio still due play, then closes. The queue holds at most 60 s; frames
+  that do not fit are refused and reported (`dropped_frames` in the
+  websocket reply, one debug log per talk session).
 - **Live first.** `async_talk_start` wakes the camera if it is not live (the
   normal wake window) and waits up to 45 s for live frames before opening.
   While talking, the live window is held `TALK_LIVE_LINGER_S` (5 s) past
@@ -369,9 +378,10 @@ Talk (HA → camera speaker) rides the running live session; wire format in
 - PPCS cameras and cameras whose capability says `vtk` 0 or 2 are refused.
 - **HA surface** (`talk_api.py`, admin only): websocket
   `cloudplus/talk/start` / `audio` (base64 µ-law, multiples of 320 bytes,
-  ≤ 1 s per message) / `stop`, keyed by camera `entity_id`, and the admin
-  service `cloudplus.talk_tone` (sine tone, default 800 Hz / 2 s, max 5 s)
-  for supervised testing.
+  ≤ 1 s per message; replies `queued_frames` / `dropped_frames`) / `stop`,
+  keyed by camera `entity_id`, and the admin service `cloudplus.talk_tone`
+  (sine tone, default 800 Hz / 2 s, max 5 s; it waits for the tone to play
+  before stopping) for supervised testing.
 
 ## Timing rules
 

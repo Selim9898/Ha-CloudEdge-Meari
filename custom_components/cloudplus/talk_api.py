@@ -20,6 +20,7 @@ Service ``cloudplus.talk_tone`` plays a sine tone (default 800 Hz, 2 s, max
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import logging
@@ -45,6 +46,7 @@ TONE_DEFAULT_HZ = 800.0
 TONE_DEFAULT_S = 2.0
 TONE_MAX_S = 5.0
 TONE_DEFAULT_VOLUME = 0.5
+TONE_TAIL_S = 1.0  # open lead + margin before stopping
 _REGISTERED_KEY = "_talk_api_registered"
 
 Finder = Callable[[Any, str], Any]
@@ -107,7 +109,8 @@ async def talk_audio(
     hass: Any, entity_id: str, audio_b64: str, find: Finder = find_coordinator
 ) -> dict:
     coord = _coordinator(hass, entity_id, find)
-    return {"queued_frames": coord.talk_push(decode_audio(audio_b64))}
+    result = coord.talk_push(decode_audio(audio_b64))
+    return {"queued_frames": result.queued, "dropped_frames": result.dropped}
 
 
 async def talk_stop(hass: Any, entity_id: str, find: Finder = find_coordinator) -> dict:
@@ -121,11 +124,16 @@ async def play_tone(
     duration_s: float = TONE_DEFAULT_S,
     volume: float = TONE_DEFAULT_VOLUME,
 ) -> None:
-    """Open talk, queue a tone and stop (queued audio still plays)."""
+    """Open talk, play a tone, then stop.
+
+    Waits for the tone to play before stopping: a stop before talk opens on
+    the wire clears the queue.
+    """
     duration_s = max(0.04, min(TONE_MAX_S, float(duration_s)))
     await coord.async_talk_start()
     try:
         coord.talk_push(tone_ulaw(frequency_hz, duration_s, volume))
+        await asyncio.sleep(duration_s + TONE_TAIL_S)
     finally:
         coord.talk_stop()
 
