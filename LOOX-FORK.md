@@ -45,11 +45,12 @@ workflow, so we leave it alone.
   then blocks further watch wakes until it has been gone for 5 min. Turn
   the *Wake when watched* switch off if such a client exists.
 - After the cap, Wake still gives the normal wake window (Motion Timeout).
-- The camera ends live on its own after ~2 min (seen in the 15 Oct live
-  test). While watched, the integration re-sends the wake every 90 s to
-  keep live going up to the cap; if live stalls anyway, viewers get the
-  idle still after 5 s instead of a frozen frame. Confirm both in the next
-  live test.
+- The camera ended live on its own after ~2 min in the 15 Oct live test.
+  The fix now copies the official app's live keep-alives (webrtc hello
+  every 21 s, status query every 120 s, START_LIVE only once); the 90 s
+  re-wake was removed because the app never wakes during live. If live
+  stalls anyway, viewers get the idle still after 5 s instead of a frozen
+  frame. Confirm past 2:13 in the next live test.
 
 ## Install on a Home Assistant box
 

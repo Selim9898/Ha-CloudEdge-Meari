@@ -40,7 +40,6 @@ class CoordinatorStateMixin:
     # Wall-clock end of the live window (epoch seconds, whole), set only when
     # the planned end moves, so the published attribute does not churn.
     _live_until_epoch: int | None = None
-    _last_wake_sent: float = float("-inf")  # monotonic, any wake request
 
     @property
     def available(self) -> bool:
@@ -290,7 +289,6 @@ class CoordinatorStateMixin:
     def _send_wake(self) -> None:
         if not self._is_snap or self._api is None:
             return
-        self._last_wake_sent = time.monotonic()
         try:
             self._api.wake_device(self._sn_num, self._device_id)
         except (OSError, RuntimeError, ValueError, KeyError) as exc:

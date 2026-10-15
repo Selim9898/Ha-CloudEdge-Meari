@@ -391,53 +391,18 @@ class LiveLoopCapTests(unittest.TestCase):
         coord._send_wake.assert_called_once_with()
 
 
-class KeepAliveTests(unittest.TestCase):
-    """Re-wake before the camera's own ~2 min live limit while watched."""
+class NoPeriodicWakeTests(unittest.TestCase):
+    """The app sends no wake while live; neither do we."""
 
-    def setUp(self) -> None:
-        self.coord = coordinator()
-
-    def tick(self, clients: int, now: float) -> None:
-        self.coord._stream_server.set(clients, now)
-        with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
-            self.coord._update_watch_wake(now)
-        worker = self.coord._keepalive_thread
-        if worker is not None:
-            worker.join(timeout=1)
-
-    def watch_until(self, end: float, start: float = T0) -> None:
-        """Loop ticks every 5 s (the real loop ticks every 0.2-0.5 s)."""
-        now = start
-        while now <= end:
-            self.tick(1, now)
-            now += 5.0
-
-    def test_re_wakes_every_keepalive_interval_while_watched(self) -> None:
-        interval = WATCH.WATCH_KEEPALIVE_S
-        self.assertLess(interval, 120.0)  # before the camera's own ~2 min limit
-        self.watch_until(T0 + interval - 5)
-        self.coord._send_wake.assert_called_once_with()  # the initial wake
-        self.watch_until(T0 + interval + 30, start=T0 + interval)
-        self.assertEqual(self.coord._send_wake.call_count, 2)
-        self.watch_until(T0 + 2 * interval, start=T0 + interval + 35)
-        self.assertEqual(self.coord._send_wake.call_count, 3)
-
-    def test_counts_from_the_last_wake_of_any_kind(self) -> None:
-        self.watch_until(T0 + 50)
-        self.coord._last_wake_sent = T0 + 50  # e.g. the Wake button
-        self.watch_until(T0 + 45 + WATCH.WATCH_KEEPALIVE_S, start=T0 + 55)
-        self.coord._send_wake.assert_called_once_with()
-        self.tick(1, T0 + 50 + WATCH.WATCH_KEEPALIVE_S)
-        self.assertEqual(self.coord._send_wake.call_count, 2)
-
-    def test_no_keepalive_once_capped(self) -> None:
-        cap = self.coord._watch_wake_max_s
-        self.tick(1, T0)
-        self.tick(1, T0 + cap)
-        self.assertTrue(self.coord._watch.capped)
-        self.coord._live_deadline = T0 + cap + 100  # e.g. a motion window
-        self.tick(1, T0 + cap + 50)
-        self.coord._send_wake.assert_called_once_with()
+    def test_a_long_watched_session_sends_only_the_initial_wake(self) -> None:
+        coord = coordinator()
+        now = T0
+        while now <= T0 + coord._watch_wake_max_s:
+            coord._stream_server.set(1, now)
+            with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
+                coord._update_watch_wake(now)
+            now += 0.5
+        coord._send_wake.assert_called_once_with()
 
 
 class FakeMuxer:

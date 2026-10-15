@@ -22,7 +22,6 @@ reconnect in a loop:
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from collections import deque
 from collections.abc import Mapping
@@ -49,10 +48,6 @@ WATCH_SESSION_GAP_S = 30.0
 WATCH_CAPPED_QUIET_S = 300.0
 # Minimum spacing between watch-triggered HTTP wake requests.
 WATCH_WAKE_RETRY_S = 30.0
-# While watched and live, re-send the wake this often. Battery cameras end a
-# live session on their own after ~2 min (observed on an ieGeek snap camera);
-# re-waking before that keeps live seamless up to the cap.
-WATCH_KEEPALIVE_S = 90.0
 # Live frames missing this long during a watch session: serve the idle still
 # instead of a frozen picture until frames resume (or the session reconnects).
 WATCH_STALL_STILL_S = 5.0
@@ -104,7 +99,6 @@ class WatchWakeMixin:
     """Coordinator mixin: keep the live window open while clients watch."""
 
     _idle_covering = False  # the idle loop is covering a live stall
-    _keepalive_thread: threading.Thread | None = None
 
     def _init_watch_wake(self, options: Mapping[str, Any] | None) -> None:
         options = options or {}
@@ -191,13 +185,11 @@ class WatchWakeMixin:
         was_live = now < self._live_deadline
         # Open the window before waking: the wake can block for a while.
         self._extend_watch_window(now, cap_end)
-        if was_live:
-            self._keep_camera_awake(now)
-            return
-        if now - state.last_wake < WATCH_WAKE_RETRY_S:
+        # Only the initial wake: the official app sends no wake while live
+        # (the live session itself is kept up by the P2P/MsgSvr keep-alives).
+        if was_live or now - state.last_wake < WATCH_WAKE_RETRY_S:
             return
         state.last_wake = now
-        self._last_wake_sent = now
         _LOGGER.info(
             "Wake when watched: stream client on %s; waking for live video",
             self._sn_num,
@@ -208,26 +200,6 @@ class WatchWakeMixin:
         # already in the past and the next loop tick wakes again.
         if self._stream_server.client_count > 0:
             self._extend_watch_window(time.monotonic(), cap_end)
-
-    def _keep_camera_awake(self, now: float) -> None:
-        """Re-wake the camera before its own live limit ends the session.
-
-        Runs the (blocking) cloud wake on a short-lived thread so the live
-        loop keeps supervising the stream meanwhile.
-        """
-        if now - self._last_wake_sent < WATCH_KEEPALIVE_S:
-            return
-        worker = self._keepalive_thread
-        if worker is not None and worker.is_alive():
-            return
-        self._last_wake_sent = now
-        _LOGGER.debug("Wake when watched: keep-alive wake for %s", self._sn_num)
-        self._keepalive_thread = threading.Thread(
-            target=self._send_wake,
-            name=f"cloudplus_keepalive_{self._sn_num}",
-            daemon=True,
-        )
-        self._keepalive_thread.start()
 
     def _cover_stall_with_still(self) -> bool:
         """True while the idle still should cover a stalled watched session."""
