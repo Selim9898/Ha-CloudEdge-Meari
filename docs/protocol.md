@@ -186,6 +186,13 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
 - When packet loss creates a persistent gap, recovery should resume only at
   a complete IVA/VVP boundary, and preferably at an I-frame for video
   startup.
+- Our outbound segments are resent from `retransmit_unacked()`, which fires
+  on every ICE Binding response and IVA handshake echo. A segment is resent
+  only once it has been out `KCP_RETRANSMIT_MIN_AGE_S` (200 ms) since its
+  last send, so a 25 frames/s talk stream is not duplicated on every
+  trigger. Talk frames carry a 1 s expiry and are dropped from the buffer
+  instead of being resent late. `acked_sns` is pruned (it used to grow for
+  the whole session).
 
 ## VVP
 

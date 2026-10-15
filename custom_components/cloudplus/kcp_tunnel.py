@@ -43,6 +43,12 @@ KCP_ACK_BATCH_SEGMENTS = 16
 KCP_ACK_EVERY_SEGMENTS = 8
 KCP_ACK_FLUSH_INTERVAL_S = 0.02
 KCP_ACK_PROBE_SEGMENTS = 32
+# retransmit_unacked() runs on every ICE Binding response and handshake echo.
+# Only resend segments that have been out this long, so a 25 frames/s talk
+# stream is not duplicated on each trigger.
+KCP_RETRANSMIT_MIN_AGE_S = 0.2
+# Remember this many ACKed sequence numbers (older ones are pruned).
+KCP_ACKED_SNS_KEEP = 4096
 
 # IVA frame constants
 IVA_MAGIC = b"\xff\x01"
@@ -228,7 +234,8 @@ class KcpTunnel:
         self.peer_id1 = None
         self.peer_id2 = None
 
-        # Sent segment buffer for retransmission (sn -> raw_segment_bytes)
+        # Sent segments for retransmission:
+        # sn -> (chunk, frg, last_sent_monotonic, expire_monotonic_or_None)
         self.sent_segments = {}
         # Track which sn have been ACK'd
         self.acked_sns = set()
@@ -303,8 +310,14 @@ class KcpTunnel:
         """Wrap data in an IVA data frame like the official app."""
         return build_iva_data_frame(data)
 
-    def send_data(self, data):
-        """Send data through KCP. Handles fragmentation if needed."""
+    def send_data(self, data, *, expire_s=None):
+        """Send data through KCP. Handles fragmentation if needed.
+
+        ``expire_s`` drops the segments from the retransmit buffer once they
+        are that old (real-time audio is useless late).
+        """
+        now = time.monotonic()
+        expire_at = now + expire_s if expire_s is not None else None
         offset = 0
         fragments = []
         while offset < len(data):
@@ -328,25 +341,33 @@ class KcpTunnel:
                 frg=frg,
                 data=chunk,
             )
-            self.sent_segments[self.sn_send] = (chunk, frg)
+            self.sent_segments[self.sn_send] = (chunk, frg, now, expire_at)
             self.send_func(seg)
             self.sn_send += 1
 
-    def retransmit_unacked(self):
-        """Retransmit all sent segments that haven't been ACK'd yet."""
+    def retransmit_unacked(self, *, min_age_s=KCP_RETRANSMIT_MIN_AGE_S):
+        """Resend unACKed segments that have been out at least ``min_age_s``."""
+        now = time.monotonic()
         for sn in sorted(self.sent_segments.keys()):
-            if sn not in self.acked_sns:
-                chunk, frg = self.sent_segments[sn]
-                seg = build_kcp_segment(
-                    cmd=KCP_CMD_PUSH,
-                    sn=sn,
-                    una=max(self.next_recv_sn, 0),
-                    wnd=self._wnd(),
-                    ts=self._ts(),
-                    frg=frg,
-                    data=chunk,
-                )
-                self.send_func(seg)
+            if sn in self.acked_sns:
+                continue
+            chunk, frg, sent_at, expire_at = self.sent_segments[sn]
+            if expire_at is not None and now >= expire_at:
+                del self.sent_segments[sn]
+                continue
+            if now - sent_at < min_age_s:
+                continue
+            self.sent_segments[sn] = (chunk, frg, now, expire_at)
+            seg = build_kcp_segment(
+                cmd=KCP_CMD_PUSH,
+                sn=sn,
+                una=max(self.next_recv_sn, 0),
+                wnd=self._wnd(),
+                ts=self._ts(),
+                frg=frg,
+                data=chunk,
+            )
+            self.send_func(seg)
 
     def _mark_remote_una(self, una):
         """Apply the peer's cumulative ACK field to our send buffer."""
@@ -355,6 +376,14 @@ class KcpTunnel:
         for sn in [sn for sn in self.sent_segments if sn < una]:
             self.acked_sns.add(sn)
             del self.sent_segments[sn]
+        self._prune_acked()
+
+    def _prune_acked(self):
+        """Keep ``acked_sns`` bounded; it used to grow for the whole session."""
+        if len(self.acked_sns) <= KCP_ACKED_SNS_KEEP:
+            return
+        floor = self.sn_send - KCP_ACKED_SNS_KEEP // 2
+        self.acked_sns = {sn for sn in self.acked_sns if sn >= floor}
 
     def send_iva_data(self, data):
         """Wrap data in IVA frame, then send through KCP."""
@@ -673,6 +702,7 @@ class KcpTunnel:
             # Clean up sent_segments for ACK'd data
             if seg["sn"] in self.sent_segments:
                 del self.sent_segments[seg["sn"]]
+            self._prune_acked()
             return ("ack", seg["sn"])
 
         if cmd == KCP_CMD_WASK:
