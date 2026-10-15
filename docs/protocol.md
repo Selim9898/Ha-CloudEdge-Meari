@@ -125,8 +125,11 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
 
 - When the camera is directly reachable on the LAN, the native app does not
   rely on KCP alone. It first sends a small plaintext msgsvr "connect" frame
-  to the camera's `host` candidate over the data socket; the camera replies
-  with its UUID. KCP then runs over that same socket.
+  to the camera's `host` candidate; the camera replies with its UUID. Our
+  integration sends it over the data socket; the ieGeek 6.2.3 capture shows
+  the app using a **separate** socket pair (and a different camera port)
+  for this wake punch, not the KCP data socket. Ours works on the test
+  camera, so it is unchanged.
 - Frame: `msgsvr_codec` with node `0xA1`, method `0xB2`, cmd `0xC3`, type
   `0xD1`, unencrypted JSON `{"sid":"<8hex>00000001"}`, sum `&0xff` checksum,
   tail `0x9D`.
@@ -169,6 +172,11 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
   cadence rarely nominates the direct pair before source-idle reconnect resets
   ICE, so the engine keeps the rapid cadence until a direct peer is confirmed
   (or the direct-seek window expires), then backs off to the keepalive cadence.
+  The ieGeek 6.2.3 app goes further: after ~10 s it sends only a STUN
+  **Binding Indication** (`0x0011`) every 30 s, and the camera does the
+  same. The engine keeps 1 s Binding Requests because KCP retransmission is
+  triggered by their responses; moving to indications needs a separate
+  retransmit timer first.
   Before startup KCP, the engine gives LAN/VPN host candidates a short direct
   ICE grace and sends initial KCP direct-only once direct STUN succeeds; this
   avoids racing QHD startup onto a relay path the native app would not use.

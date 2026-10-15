@@ -127,6 +127,14 @@ shows what the app sends while live and the engine now matches it
 All MsgSvr sends run on one short-lived worker; replies are read and
 dropped so the media loop never blocks on the TCP socket.
 
+Known differences left on purpose (next levers if live still stops):
+
+- The ieGeek app sends `START_LIVE` with stream flag `0`; the ieGeek
+  profile here sends `1` (see protocol.md, VVP).
+- After ~10 s the app replaces 1 s ICE Binding Requests with a Binding
+  Indication every 30 s. The engine keeps 1 s requests because KCP
+  retransmission is triggered by their responses.
+
 ## Source-idle recovery (sustaining the stream)
 
 The `0x888E` VVP heartbeat keeps the **P2P session** alive. Native QHD HEVC

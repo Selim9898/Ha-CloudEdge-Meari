@@ -22,7 +22,16 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
 | `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Fold into the WebRTC PR |
 | `c096f28` | docs(fork): commit table | Fork only |
-| next commit | fix(watch-wake): keep-alive wake every 90 s; idle still over stalls | Fold into the wake-on-watch PR |
+| `8def0f6` | fix(watch-wake): 90 s keep-alive wake (removed in `32ac655`); idle still over stalls | Fold into the wake-on-watch PR |
+| `a0fbff5` | docs(watch-wake): HLS idle timeout is 30 s | Fold into the wake-on-watch PR |
+| `1117d94` | fix(stream): START_LIVE once on H.264, like the app | Own PR (capture-backed) |
+| `94e1ece` | fix(stream): webrtc hello every 21 s, status query every 120 s while live | Own PR (capture-backed) |
+| `32ac655` | fix(watch-wake): drop the 90 s re-wake | Fold into the wake-on-watch PR |
+| `e8d5db4` | fix(kcp): resend only segments older than 200 ms; expire late audio | Talk PR |
+| `baad458` | feat(talk): talk VVP commands, uplink frame builder, u-law encoder, capture fixtures | Talk PR |
+| `7963190` | refactor(coordinator): idle still loop moved to `coordinator/idle.py` | Talk PR (prep) |
+| `336cd8b` | feat(talk): queue-only talk API drained by the KCP live loop | Talk PR |
+| `c15776c` | feat(talk): admin-only websocket talk API and `talk_tone` service | Talk PR |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
@@ -51,6 +60,34 @@ workflow, so we leave it alone.
   re-wake was removed because the app never wakes during live. If live
   stalls anyway, viewers get the idle still after 5 s instead of a frozen
   frame. Confirm past 2:13 in the next live test.
+
+### Live keep-alive after the app capture (to verify at the test home)
+
+A capture of the official ieGeek app (3 min 47 s of live without a gap)
+showed what we were missing while live: a routed webrtc hello every ~21 s
+and a status query every ~120 s, and START_LIVE re-sent every 30 s on H.264
+where the app sends it once. All three now match the app. Test past 2:13
+with a viewer open, one change at a time if it still stops.
+
+Not changed yet, in order of what to try next if live still stops:
+
+1. **ieGeek START_LIVE stream flag.** The ieGeek 6.2.3 app sends flag `0`
+   (byte `0x39`); the integration's ieGeek profile sends `1`. Next lever.
+2. **ICE connectivity checks.** After ~10 s the app switches from Binding
+   Requests every 1 s to a STUN Binding Indication every 30 s. We keep 1 s
+   requests on purpose: our KCP retransmission rides on their Binding
+   responses, so switching would first need its own retransmit timer, and
+   the capture only shows the healthy LAN pattern, not that the faster
+   cadence hurts. Low risk to leave.
+
+### Talk (to verify at the test home)
+
+Talk is implemented for KCP-path cameras from the same capture: VVP
+`0x1350` / `0x1351` and byte-exact 40 ms µ-law frames. Try it first with
+the admin service `cloudplus.talk_tone` (800 Hz, 2 s) while the camera is
+live, then the websocket API from a client (`cloudplus/talk/start`,
+`audio`, `stop`; see README). Raise the camera's Speaker Volume entity if
+the tone is quiet. PPCS cameras are not supported.
 
 ## Install on a Home Assistant box
 
@@ -82,8 +119,8 @@ it from the owner's app, and add that account to HA.
 
 ## Next planned items
 
-Both need a packet capture of the official CloudEdge app before any code is
-written.
+SD-card playback still needs a packet capture of the official app before
+any code is written. Talk is implemented (see above) and needs a live test.
 
 **SD-card playback as an HA media source.** The goal is to browse and play
 the camera's SD recordings from HA's media browser, then from Loox. Nothing
@@ -97,7 +134,7 @@ format (`meari_commands.py`). What we need:
 - then a `media_source` platform that lists days and clips and streams a
   clip through the existing muxer
 
-**Two-way talk (phone mic to camera speaker).** Static research is in
+**Two-way talk: background (implemented since).** Static research is in
 `/Users/selim/Developer/Loox-Mobile/.claude/worktrees/cameras-1015/docs/efforts/active/cameras-1015/research/MEARI-TALK-RESEARCH.md`
 (in the Loox repo, not here). In short:
 
@@ -110,8 +147,8 @@ format (`meari_commands.py`). What we need:
 - Talk should share the live P2P session, not open a second one.
 - `vtk` in the capability JSON says whether the camera supports talk.
 
-What we need: an iPhone capture (`rvictl` + `tcpdump`, phone and camera on
-the same LAN) of the official app doing live view, about 5 s of talk with a
-tone, then release. The research doc has the full capture and test plan.
-Captures contain host-key-derived MD5s and licence ids, so keep them out of
-any repo.
+The 15 Oct capture settled the KCP path: open/close are plain VVPs, audio
+frames are raw KCP payloads (not IVA), encrypted with the static stream key
+from `0x28`. Sanitized fixtures are in `tests/fixtures/talk/`. Raw captures
+contain host-key-derived MD5s and licence ids, so keep them out of any
+repo. PPCS talk still needs a PPCS capture.
