@@ -266,14 +266,25 @@ How long that outlives the human viewer depends on the player:
 - **WebRTC** through go2rtc: go2rtc drops its producer about 20 s after the
   last WebRTC consumer leaves, so live ends ~30 s after the viewer.
 - **HLS** through HA's `stream` worker: the worker keeps the source open
-  until `OUTPUT_IDLE_TIMEOUT` (300 s) after the last HLS request, so a
-  glance at the dashboard keeps the camera live for ~5 min.
+  until `OUTPUT_IDLE_TIMEOUT` (30 s in HA 2026.3,
+  `homeassistant/components/stream/const.py`) after the last HLS request,
+  so with the 10 s linger live ends ~40 s after the viewer.
 
 Both connect from the HA host with an ffmpeg/libav reader, so there is no
 honest way to tell them apart (or to tell an idle HLS worker from a
-viewer). The default cap is therefore 5 min: longer would mostly buy live
-time nobody watches after an HLS glance, and the rolling budget (3 caps)
-works out to 15 min of watch-driven live per hour.
+viewer). Either way the hold after closing is well under a minute, so the
+cap is not sized for it. The default cap of 5 min is a battery budget per
+viewing: enough to check what is going on at the door, short enough that a
+forgotten tab or an always-connected client costs little. The rolling
+budget (3 caps) works out to 15 min of watch-driven live per hour.
+
+On stream errors HA's worker reconnects with a growing backoff of 10, 20,
+30, 40 s… (`STREAM_RESTART_INCREMENT` = 10 s). Those reconnects stay inside
+the same capped session: a capped session only ends after 5 min without
+clients (`WATCH_CAPPED_QUIET_S`), so the backoff cannot re-arm the cap.
+Before the cap, a backoff step above 30 s (`WATCH_SESSION_GAP_S`) does end
+the session and the reconnect starts a new one; the rolling hourly budget
+bounds what that can cost.
 
 **Battery cost of always-connected clients.** HA's *Preload stream*,
 Frigate, and a go2rtc producer kept warm hold the TCP connection open

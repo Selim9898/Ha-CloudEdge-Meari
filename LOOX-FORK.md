@@ -18,7 +18,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `f6748f7` | fix(watch-wake): window survives a slow wake; wakes rate-limited | Fold into the wake-on-watch PR |
 | `4599299` | fix(watch-wake): client presence from the stream server | Fold into the wake-on-watch PR |
 | `6e67e26` | fix(watch-wake): sticky cap, rolling hourly budget, state survives reloads | Fold into the wake-on-watch PR |
-| `b5eae08` | fix(watch-wake): default cap 5 min; HLS vs WebRTC hold times documented | Fold into the wake-on-watch PR |
+| `b5eae08` | fix(watch-wake): default cap 5 min; viewer hold times documented (HLS figure corrected later) | Fold into the wake-on-watch PR |
 | `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
 | `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Fold into the WebRTC PR |
 | `c096f28` | docs(fork): commit table | Fork only |
@@ -35,10 +35,11 @@ workflow, so we leave it alone.
   while the stream is open, up to 5 min per viewing session and 15 min of
   watch-driven live per rolling hour.
 - **WebRTC viewers release the camera within ~20 s** of closing the view.
-  **HLS viewers hold it live ~5 min** after closing, because HA's stream
-  worker keeps the source open that long (`OUTPUT_IDLE_TIMEOUT` = 300 s).
-  The integration cannot tell the two apart, which is why the cap defaults
-  to 5 min. Check which one the Loox app and the HA dashboard actually use.
+  **HLS viewers hold it live ~40 s** after closing: HA's stream worker
+  keeps the source open 30 s (`OUTPUT_IDLE_TIMEOUT`), plus ~10 s of linger
+  here. The integration cannot tell either from a viewer still watching.
+  The 5 min default cap is a battery budget per viewing, not sized for
+  either hold. Check which player the Loox app and the HA dashboard use.
 - Anything that holds the stream open permanently (HA *Preload stream*,
   Frigate, a warm go2rtc producer) uses one cap after each HA restart and
   then blocks further watch wakes until it has been gone for 5 min. Turn

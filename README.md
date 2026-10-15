@@ -245,11 +245,11 @@ does not reset these limits; restarting HA does.
 
 How long a viewer keeps the camera live depends on how HA plays the
 stream. A **WebRTC** viewer (go2rtc, the default when available) releases
-the stream within ~20 s of closing the dashboard. An **HLS** viewer does
-not: HA's stream worker keeps the source open for ~5 minutes after the last
-viewer leaves, and the integration cannot tell that apart from someone
-still watching. So with HLS every glance costs up to 5 minutes of live
-video, which is why the default cap is 5 minutes.
+the stream within ~20 s of closing the dashboard. An **HLS** viewer
+releases it ~40 s after closing (HA's stream worker keeps the source open
+30 s after the last request, plus ~10 s of linger here). The integration
+cannot tell either apart from someone still watching. The 5-minute default
+cap is a battery budget per viewing, not tied to either player.
 
 > ⚠️ **Clients that hold the stream open count as watching.** HA's
 > *Preload stream* option, Frigate, and go2rtc producers kept warm all keep

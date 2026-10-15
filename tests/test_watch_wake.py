@@ -109,8 +109,8 @@ class WatchWakeTests(unittest.TestCase):
             self.coord._update_watch_wake(now)
 
     def test_defaults_on_with_a_five_minute_cap(self) -> None:
-        # Sized for HA's HLS worker, which holds the source ~5 min after the
-        # last viewer; the hourly budget is three caps (15 min).
+        # A battery budget per viewing; the hourly budget is three caps
+        # (15 min).
         self.assertTrue(self.coord.watch_wake_enabled)
         self.assertEqual(self.cap, 300.0)
         self.assertEqual(self.coord._watch_budget_s(), 900.0)

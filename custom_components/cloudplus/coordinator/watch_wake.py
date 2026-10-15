@@ -6,7 +6,7 @@ client connected to the local MPEG-TS server opens and keeps extending that
 window, so a viewer gets live video without pressing a button.
 
 Battery guards, all aimed at clients that hold the port open (HA preload
-stream, HA's HLS worker for ~5 min after the last viewer, Frigate, go2rtc) or
+stream, HA's stream worker for ~30 s after the last viewer, Frigate, go2rtc) or
 reconnect in a loop:
 
 - One viewing session (clients connected, short reconnect gaps tolerated)
