@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -41,6 +42,7 @@ class CloudEdgeMeariCamera(CloudEdgeMeariEntity, Camera):
         self._attr_entity_registry_enabled_default = coordinator.is_battery_camera
         self._attr_unique_id = f"{coordinator.device_uuid}_camera"
         self._provider_port: int | None = None
+        self._refresh_task: asyncio.Task | None = None
 
     @callback
     def _handle_update(self) -> None:
@@ -52,13 +54,25 @@ class CloudEdgeMeariCamera(CloudEdgeMeariEntity, Camera):
         registers, so ask it to look again once the port is known or moves.
         """
         super()._handle_update()
-        port = self._coordinator.stream_port
+        # Plain read: this runs on the event loop for every coordinator
+        # update, and ``stream_port`` may take a lock and rebind a socket.
+        port = self._coordinator.current_stream_port
         if port != self._provider_port:
             self._provider_port = port
             refresh = getattr(self, "async_refresh_providers", None)
             hass = getattr(self, "hass", None)
             if port and refresh is not None and hass is not None:
-                hass.async_create_task(refresh())
+                self._cancel_refresh()
+                self._refresh_task = hass.async_create_task(refresh())
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._cancel_refresh()
+        await super().async_will_remove_from_hass()
+
+    def _cancel_refresh(self) -> None:
+        task, self._refresh_task = self._refresh_task, None
+        if task is not None and not task.done():
+            task.cancel()
 
     @property
     def is_streaming(self) -> bool:
