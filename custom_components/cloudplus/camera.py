@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -40,6 +40,25 @@ class CloudEdgeMeariCamera(CloudEdgeMeariEntity, Camera):
         super().__init__(coordinator, entry)
         self._attr_entity_registry_enabled_default = coordinator.is_battery_camera
         self._attr_unique_id = f"{coordinator.device_uuid}_camera"
+        self._provider_port: int | None = None
+
+    @callback
+    def _handle_update(self) -> None:
+        """Re-pick the WebRTC provider whenever the stream port changes.
+
+        The camera entity is added before the coordinator starts its stream
+        server, so HA's first provider check sees no ``stream_source`` and
+        never offers WebRTC (go2rtc). HA only checks again when a provider
+        registers, so ask it to look again once the port is known or moves.
+        """
+        super()._handle_update()
+        port = self._coordinator.stream_port
+        if port != self._provider_port:
+            self._provider_port = port
+            refresh = getattr(self, "async_refresh_providers", None)
+            hass = getattr(self, "hass", None)
+            if port and refresh is not None and hass is not None:
+                hass.async_create_task(refresh())
 
     @property
     def is_streaming(self) -> bool:
