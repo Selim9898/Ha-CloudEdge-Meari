@@ -47,7 +47,6 @@ from .protocol import (
     format_licence_id,
 )
 from .relay_probe import start_relay_probe
-from .talk import TALK_FRAME_EXPIRE_S
 from .keepalive import SignalingKeepalive, SnapDeviceKeepalive
 from .session_support import (
     AUTH_FALLBACK_NO_VIDEO_S,
@@ -335,8 +334,9 @@ class LiveSessionMixin:
             kcp.send_iva_data(_next_vvp(VVP_CMD_TALK_CLOSE, stream_id=0, stream_flag=0))
 
         def _talk_frame(frame: bytes) -> None:
-            # Raw KCP payload (not IVA-wrapped), dropped from retransmit late.
-            kcp.send_data(frame, expire_s=TALK_FRAME_EXPIRE_S)
+            # Raw KCP payload (not IVA-wrapped). Stale audio is dropped in the
+            # talk queue before it gets here; once sent it is reliable.
+            kcp.send_data(frame)
 
         def _send_ice_checks() -> None:
             for cand in camera_candidates:
@@ -698,6 +698,7 @@ class LiveSessionMixin:
 
             if talk is not None and live_started:
                 talk.drain(_talk_open, _talk_close, _talk_frame)
+            kcp.resend_due()
 
             # No periodic START_LIVE on the KCP path: the official app sends it
             # once per session (plus a quality switch), never as a keep-alive.

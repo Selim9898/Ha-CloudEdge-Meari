@@ -363,8 +363,9 @@ Talk (HA → camera speaker) rides the running live session; wire format in
   the queued audio, and that live time is charged to the wake-when-watched
   budget like watching. A capped watch session does not block talk (it is
   an explicit action), but talk uses up the hour's budget.
-- Talk frames are sent with a 1 s KCP expiry so late audio is dropped, not
-  retransmitted (see protocol.md, KCP).
+- Once sent, talk frames are ordinary reliable KCP segments (dropping one
+  would stall the camera's in-order delivery); stale audio is dropped in the
+  talk queue before it is sent (see protocol.md, KCP).
 - PPCS cameras and cameras whose capability says `vtk` 0 or 2 are refused.
 - **HA surface** (`talk_api.py`, admin only): websocket
   `cloudplus/talk/start` / `audio` (base64 µ-law, multiples of 320 bytes,

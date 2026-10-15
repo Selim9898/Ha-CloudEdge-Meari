@@ -1,4 +1,4 @@
-"""Offline checks for the KCP retransmit guard used by talk audio.
+"""Offline checks for KCP retransmission (min age, timer, never drop).
 
 retransmit_unacked() fires on every ICE Binding response (about once a
 second) and on handshake echoes. With 25 talk frames a second in flight,
@@ -54,7 +54,7 @@ class RetransmitGuardTests(unittest.TestCase):
 
     def test_burst_of_triggers_does_not_duplicate_audio(self) -> None:
         for _ in range(4):  # 160 ms of talk frames, a trigger after each
-            self.kcp.send_data(b"f" * 372, expire_s=1.0)
+            self.kcp.send_data(b"f" * 372)
             self.clock.now += 0.04
             self.kcp.retransmit_unacked()
         self.assertEqual(len(self.sent), 4)  # no copies inside the age window
@@ -66,12 +66,27 @@ class RetransmitGuardTests(unittest.TestCase):
         self.clock.now += 1.0
         self.assertEqual(self.resent_sns(), [1])
 
-    def test_expired_segments_are_dropped(self) -> None:
-        self.kcp.send_data(b"late audio", expire_s=1.0)
-        self.kcp.send_data(b"control")
-        self.clock.now += 1.5
-        self.assertEqual(self.resent_sns(), [1])
-        self.assertNotIn(0, self.kcp.sent_segments)
+    def test_unacked_segments_are_never_dropped(self) -> None:
+        # Dropping one would stall the camera's in-order delivery forever.
+        self.kcp.send_data(b"talk frame")
+        self.clock.now += 60.0
+        self.assertEqual(self.resent_sns(), [0])
+        self.assertIn(0, self.kcp.sent_segments)
+
+    def test_timer_resends_without_any_ice_reply(self) -> None:
+        self.kcp.send_data(b"lost")
+        self.kcp.resend_due()
+        self.assertEqual(len(self.sent), 1)  # too young
+        self.clock.now += KCP.KCP_RESEND_TIMEOUT_S
+        self.kcp.resend_due()
+        self.assertEqual(len(self.sent), 2)
+        self.clock.now += KCP.KCP_RESEND_CHECK_S / 2
+        self.kcp.resend_due()  # checked too recently
+        self.assertEqual(len(self.sent), 2)
+        self.kcp._mark_remote_una(1)
+        self.clock.now += 5.0
+        self.kcp.resend_due()
+        self.assertEqual(len(self.sent), 2)  # ACKed: nothing left to resend
 
     def test_acked_set_stays_bounded(self) -> None:
         for _ in range(KCP.KCP_ACKED_SNS_KEEP + 100):

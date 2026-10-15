@@ -36,8 +36,6 @@ TALK_OPEN_LEAD_S = 0.3
 TALK_MAX_LAG_S = 0.2
 # At most this many frames per loop iteration (the app packs up to 3).
 TALK_MAX_FRAMES_PER_DRAIN = 3
-# Talk frames older than this are dropped from KCP retransmission.
-TALK_FRAME_EXPIRE_S = 1.0
 TALK_QUEUE_MAX_FRAMES = int(TALK_MAX_S / TALK_FRAME_INTERVAL_S)
 
 

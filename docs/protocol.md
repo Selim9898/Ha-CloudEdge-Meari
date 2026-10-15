@@ -198,9 +198,12 @@ ordering, source-idle recovery, wake retries) see [streaming.md](streaming.md).
   on every ICE Binding response and IVA handshake echo. A segment is resent
   only once it has been out `KCP_RETRANSMIT_MIN_AGE_S` (200 ms) since its
   last send, so a 25 frames/s talk stream is not duplicated on every
-  trigger. Talk frames carry a 1 s expiry and are dropped from the buffer
-  instead of being resent late. `acked_sns` is pruned (it used to grow for
-  the whole session).
+  trigger. A timer (`resend_due`, checked every 100 ms) also resends
+  segments unACKed for 500 ms, so a lost segment is recovered without an
+  ICE reply. Segments are **never** dropped before they are ACKed: the
+  receiver delivers in order and would stall behind a missing sn. Stale
+  talk audio is dropped in the talk queue instead, before it reaches KCP.
+  `acked_sns` is pruned (it used to grow for the whole session).
 
 ## VVP
 

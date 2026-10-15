@@ -47,6 +47,11 @@ KCP_ACK_PROBE_SEGMENTS = 32
 # Only resend segments that have been out this long, so a 25 frames/s talk
 # stream is not duplicated on each trigger.
 KCP_RETRANSMIT_MIN_AGE_S = 0.2
+# Timer-driven resend, so a lost segment is resent even when no ICE reply or
+# handshake echo arrives: checked every KCP_RESEND_CHECK_S, resending
+# segments unACKed for KCP_RESEND_TIMEOUT_S.
+KCP_RESEND_CHECK_S = 0.1
+KCP_RESEND_TIMEOUT_S = 0.5
 # Remember this many ACKed sequence numbers (older ones are pruned).
 KCP_ACKED_SNS_KEEP = 4096
 
@@ -234,9 +239,11 @@ class KcpTunnel:
         self.peer_id1 = None
         self.peer_id2 = None
 
-        # Sent segments for retransmission:
-        # sn -> (chunk, frg, last_sent_monotonic, expire_monotonic_or_None)
+        # Sent segments for retransmission: sn -> (chunk, frg, last_sent_monotonic).
+        # A segment stays until ACKed: dropping one would stall the receiver's
+        # in-order delivery behind the missing sn.
         self.sent_segments = {}
+        self._last_resend_check = 0.0
         # Track which sn have been ACK'd
         self.acked_sns = set()
 
@@ -310,14 +317,9 @@ class KcpTunnel:
         """Wrap data in an IVA data frame like the official app."""
         return build_iva_data_frame(data)
 
-    def send_data(self, data, *, expire_s=None):
-        """Send data through KCP. Handles fragmentation if needed.
-
-        ``expire_s`` drops the segments from the retransmit buffer once they
-        are that old (real-time audio is useless late).
-        """
+    def send_data(self, data):
+        """Send data through KCP. Handles fragmentation if needed."""
         now = time.monotonic()
-        expire_at = now + expire_s if expire_s is not None else None
         offset = 0
         fragments = []
         while offset < len(data):
@@ -341,7 +343,7 @@ class KcpTunnel:
                 frg=frg,
                 data=chunk,
             )
-            self.sent_segments[self.sn_send] = (chunk, frg, now, expire_at)
+            self.sent_segments[self.sn_send] = (chunk, frg, now)
             self.send_func(seg)
             self.sn_send += 1
 
@@ -351,13 +353,10 @@ class KcpTunnel:
         for sn in sorted(self.sent_segments.keys()):
             if sn in self.acked_sns:
                 continue
-            chunk, frg, sent_at, expire_at = self.sent_segments[sn]
-            if expire_at is not None and now >= expire_at:
-                del self.sent_segments[sn]
-                continue
+            chunk, frg, sent_at = self.sent_segments[sn]
             if now - sent_at < min_age_s:
                 continue
-            self.sent_segments[sn] = (chunk, frg, now, expire_at)
+            self.sent_segments[sn] = (chunk, frg, now)
             seg = build_kcp_segment(
                 cmd=KCP_CMD_PUSH,
                 sn=sn,
@@ -368,6 +367,14 @@ class KcpTunnel:
                 data=chunk,
             )
             self.send_func(seg)
+
+    def resend_due(self, now=None):
+        """Timer-driven resend; call every loop iteration."""
+        now = time.monotonic() if now is None else now
+        if not self.sent_segments or now - self._last_resend_check < KCP_RESEND_CHECK_S:
+            return
+        self._last_resend_check = now
+        self.retransmit_unacked(min_age_s=KCP_RESEND_TIMEOUT_S)
 
     def _mark_remote_una(self, una):
         """Apply the peer's cumulative ACK field to our send buffer."""
