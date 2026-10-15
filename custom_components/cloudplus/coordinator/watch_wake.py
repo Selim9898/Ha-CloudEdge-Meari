@@ -17,6 +17,7 @@ cannot keep the camera awake.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -35,6 +36,8 @@ _LOGGER = logging.getLogger(__name__)
 WATCH_WAKE_LINGER_S = 10.0
 # Clients gone for this long end the viewing session (and reset the cap).
 WATCH_SESSION_GAP_S = 30.0
+# Minimum spacing between watch-triggered HTTP wake requests.
+WATCH_WAKE_RETRY_S = 30.0
 
 
 def watch_wake_max_minutes(options: Mapping[str, Any] | None) -> int:
@@ -62,6 +65,7 @@ class WatchWakeMixin:
         self._watch_started_at = 0.0
         self._watch_last_seen = 0.0
         self._watch_capped = False
+        self._watch_last_wake = float("-inf")
 
     @property
     def watch_wake_enabled(self) -> bool:
@@ -123,12 +127,24 @@ class WatchWakeMixin:
                 self._watch_wake_max_s / 60.0,
             )
             return
-        if now >= self._live_deadline:
-            _LOGGER.info(
-                "Wake when watched: stream client on %s; waking for live video",
-                self._sn_num,
-            )
-            self._send_wake()
+        was_live = now < self._live_deadline
+        # Open the window before waking: the wake can block for a while.
+        self._extend_watch_window(now, cap_end)
+        if was_live or now - self._watch_last_wake < WATCH_WAKE_RETRY_S:
+            return
+        self._watch_last_wake = now
+        _LOGGER.info(
+            "Wake when watched: stream client on %s; waking for live video",
+            self._sn_num,
+        )
+        self._send_wake()
+        # The wake is two cloud HTTP calls (up to ~30 s each). Re-anchor the
+        # window on the time it returned, or a slow wake leaves the deadline
+        # already in the past and the next loop tick wakes again.
+        if self._stream_server.client_count > 0:
+            self._extend_watch_window(time.monotonic(), cap_end)
+
+    def _extend_watch_window(self, now: float, cap_end: float) -> None:
         self._live_deadline = max(
             self._live_deadline, min(now + WATCH_WAKE_LINGER_S, cap_end)
         )

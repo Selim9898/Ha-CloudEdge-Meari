@@ -78,8 +78,10 @@ class WatchWakeTests(unittest.TestCase):
         self.cap = self.coord._watch_wake_max_s
 
     def watch(self, clients: int, now: float) -> None:
+        """One snap-loop tick at synthetic monotonic time ``now``."""
         self.coord._stream_server.client_count = clients
-        self.coord._update_watch_wake(now)
+        with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: now)):
+            self.coord._update_watch_wake(now)
 
     def test_defaults_on_with_a_ten_minute_cap(self) -> None:
         self.assertTrue(self.coord.watch_wake_enabled)
@@ -167,6 +169,31 @@ class WatchWakeTests(unittest.TestCase):
         self.watch(1, T0 + 2 * self.cap + 1)
         self.assertFalse(self.coord._watch_capped)
         self.assertEqual(self.coord._live_deadline, T0 + 2 * self.cap + 1 + LINGER)
+
+    def test_slow_wake_still_leaves_the_window_open(self) -> None:
+        clock = SimpleNamespace(now=T0)
+
+        def slow_wake() -> None:
+            clock.now = T0 + 45  # two cloud calls near their read timeout
+
+        self.coord._send_wake.side_effect = slow_wake
+        self.coord._stream_server.client_count = 1
+        with patch.object(WATCH, "time", SimpleNamespace(monotonic=lambda: clock.now)):
+            self.coord._update_watch_wake(T0)
+        self.assertEqual(self.coord._live_deadline, T0 + 45 + LINGER)
+        # The live loop now runs; the next tick must not wake again.
+        self.watch(1, T0 + 45.2)
+        self.coord._send_wake.assert_called_once_with()
+
+    def test_wake_retries_are_rate_limited(self) -> None:
+        self.watch(1, T0)
+        for step in (1, 2, 5, 20):
+            self.coord._live_deadline = 0.0  # e.g. the loop was blocked
+            self.watch(1, T0 + step)
+        self.coord._send_wake.assert_called_once_with()
+        self.coord._live_deadline = 0.0
+        self.watch(1, T0 + WATCH.WATCH_WAKE_RETRY_S)
+        self.assertEqual(self.coord._send_wake.call_count, 2)
 
     def test_mains_cameras_are_untouched(self) -> None:
         coord = coordinator(category="ipc")

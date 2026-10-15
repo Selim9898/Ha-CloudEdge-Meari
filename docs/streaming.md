@@ -200,7 +200,12 @@ to be live:
 - A client on the local MPEG-TS server (`StreamServer.client_count > 0`)
   starts a **viewing session**. If no live window is open, the coordinator
   sends the same HTTP wake as the Wake button; the live loop then starts the
-  P2P session, which handles dormancy wake as described above.
+  P2P session, which handles dormancy wake as described above. The window
+  is opened **before** that wake and re-anchored on the time it returns:
+  the wake is two blocking cloud calls (30 s read timeout each), and a
+  window computed from the earlier time could already be over, making the
+  next loop tick wake again. Watch-triggered HTTP wakes are also spaced at
+  least `WATCH_WAKE_RETRY_S` (30 s) apart.
 - While clients stay connected the live window is extended to
   `now + WATCH_WAKE_LINGER_S` (10 s) on every loop tick, so live ends about
   10 s after the last client leaves.
