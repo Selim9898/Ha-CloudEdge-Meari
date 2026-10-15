@@ -52,8 +52,13 @@ class TalkPushResult(NamedTuple):
 class TalkChannel:
     """Thread-safe talk queue; only the live loop touches the wire."""
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        on_sent: Callable[[float], None] | None = None,
+    ) -> None:
         self._clock = clock
+        self._on_sent = on_sent  # called with seconds of audio sent
         self._lock = threading.Lock()
         # (due monotonic time, 320 bytes of u-law); due = when it should play.
         self._frames: deque[tuple[float, bytes]] = deque()
@@ -69,8 +74,11 @@ class TalkChannel:
 
     # ---- HA side -------------------------------------------------------
 
-    def begin(self) -> None:
-        """Start a talk session (idempotent while one is running)."""
+    def begin(self, started_at: float | None = None) -> None:
+        """Start a talk session (idempotent while one is running).
+
+        ``started_at`` continues an earlier 60 s window (same live session).
+        """
         with self._lock:
             now = self._clock()
             self._expire_locked(now)
@@ -79,7 +87,7 @@ class TalkChannel:
                 return
             self._frames.clear()
             self._want_open = True
-            self._started_at = now
+            self._started_at = now if started_at is None else started_at
             self._last_activity = now
             self._last_due = 0.0
             self._logged_drop = False
@@ -179,6 +187,8 @@ class TalkChannel:
             elif kind == "frame":
                 send_frame(payload)
                 sent += 1
+                if self._on_sent is not None:
+                    self._on_sent(TALK_FRAME_INTERVAL_S)
             else:
                 _LOGGER.debug("Talk close (%s)", self.stop_reason or "stopped")
                 send_close()

@@ -377,11 +377,18 @@ Talk (HA → camera speaker) rides the running live session; wire format in
   that do not fit are refused and reported (`dropped_frames` in the
   websocket reply, one debug log per talk session).
 - **Live first.** `async_talk_start` wakes the camera if it is not live (the
-  normal wake window) and waits up to 45 s for live frames before opening.
+  normal wake window) and waits up to 45 s for live frames before opening;
+  the wait ends at once if the coordinator stops or the entry unloads.
   While talking, the live window is held `TALK_LIVE_LINGER_S` (5 s) past
   the queued audio, and that live time is charged to the wake-when-watched
-  budget like watching. A capped watch session does not block talk (it is
-  an explicit action), but talk uses up the hour's budget.
+  budget like watching.
+- **Limits.** Talk start is refused with a clear error when the camera's
+  hourly live budget is used up. Talk audio is capped at `TALK_HOURLY_S`
+  (5 min) per rolling hour (sent audio is counted; a push that would pass
+  it stops talk). The 60 s cap is per live view: a new start within the
+  same live session (`_live_session_seq`) continues that window instead of
+  resetting it, and is refused once it is used up. A capped *watch*
+  session alone does not block talk (it is an explicit action).
 - Once sent, talk frames are ordinary reliable KCP segments (dropping one
   would stall the camera's in-order delivery); stale audio is dropped in the
   talk queue before it is sent (see protocol.md, KCP).

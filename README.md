@@ -192,9 +192,11 @@ by the camera `entity_id`. All three commands require an **admin** user.
 | `cloudplus/talk/audio` | `entity_id`, `audio` | Base64 G.711 µ-law, 8 kHz mono, a non-zero multiple of 320 bytes (40 ms frames), at most 1 s per message. Replies `queued_frames` and `dropped_frames` (queue full). Audio more than 2 s late is dropped. |
 | `cloudplus/talk/stop` | `entity_id` | Audio still due plays, then talk closes. |
 
-Talk stops on its own after 2 s without audio and after 60 s at most. It
-keeps the camera live while talking and counts toward the *Wake when
-watched* hourly budget. Legacy PPCS cameras are not supported yet.
+Talk stops on its own after 2 s without audio and after 60 s per live
+view (restarting talk in the same live view does not reset that). It keeps
+the camera live while talking and counts toward the *Wake when watched*
+hourly budget; it is refused when that budget is used up, and talk audio
+is capped at 5 minutes per hour. Legacy PPCS cameras are not supported yet.
 
 ---
 

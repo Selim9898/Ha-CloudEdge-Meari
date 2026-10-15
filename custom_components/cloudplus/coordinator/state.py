@@ -44,6 +44,8 @@ class CoordinatorStateMixin:
     # Wall-clock end of the live window (epoch seconds, whole), set only when
     # the planned end moves, so the published attribute does not churn.
     _live_until_epoch: int | None = None
+    # Increments each time a live session starts (session gate off -> on).
+    _live_session_seq: int = 0
 
     @property
     def available(self) -> bool:
@@ -365,6 +367,8 @@ class CoordinatorStateMixin:
 
     def _set_session_active(self, active: bool) -> None:
         """Hand the muxer to a P2P session (True) or the idle still loop."""
+        if active and not self._session_active:
+            self._live_session_seq += 1
         self._session_active = bool(active)
         if not active:
             self._idle_covering = False

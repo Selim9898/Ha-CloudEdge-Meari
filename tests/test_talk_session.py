@@ -284,5 +284,80 @@ class CoordinatorTalkTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(coord.talk_active)
 
 
+class TalkLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def live(self) -> object:
+        coord = coordinator()
+        coord._camera_awake = True
+        coord._set_session_active(True)  # a live session (seq 1)
+        return coord
+
+    async def test_refused_when_the_watch_budget_is_used_up(self) -> None:
+        coord = await self.live()
+        now = time.monotonic()
+        coord._watch.grant(now - coord._watch_budget_s(), now)
+        with self.assertRaises(COORD_TALK.TalkError) as ctx:
+            await coord.async_talk_start()
+        self.assertIn("budget", str(ctx.exception))
+        self.assertFalse(coord.talk_active)
+
+    async def test_refused_after_the_hourly_talk_allowance(self) -> None:
+        coord = await self.live()
+        coord._watch.add_talk(time.monotonic(), COORD_TALK.TALK_HOURLY_S)
+        with self.assertRaises(COORD_TALK.TalkError):
+            await coord.async_talk_start()
+
+    async def test_push_stops_talk_at_the_hourly_allowance(self) -> None:
+        coord = await self.live()
+        await coord.async_talk_start()
+        coord._watch.add_talk(time.monotonic(), COORD_TALK.TALK_HOURLY_S - 0.1)
+        with self.assertRaises(COORD_TALK.TalkError):
+            coord.talk_push(b"\x00" * FRAME * 25)
+        self.assertFalse(coord.talk_active)
+
+    async def test_sent_audio_is_charged_to_the_talk_allowance(self) -> None:
+        coord = await self.live()
+        await coord.async_talk_start()
+        coord.talk_push(b"\x00" * FRAME * 3)
+        wire = Wire(Clock())
+        coord._talk._next_send = 0.0
+        coord._talk.drain(wire.open, wire.close, wire.frame)
+        time.sleep(TALK.TALK_OPEN_LEAD_S + 0.15)
+        coord._talk.drain(wire.open, wire.close, wire.frame)
+        self.assertAlmostEqual(
+            coord._watch.talk_used(time.monotonic()), 3 * INTERVAL, places=6
+        )
+
+    async def test_restart_in_the_same_live_view_keeps_the_60_s_window(self) -> None:
+        coord = await self.live()
+        await coord.async_talk_start()
+        first_start = coord._talk.started_at
+        coord.talk_stop()
+        await asyncio.sleep(0.05)
+        await coord.async_talk_start()
+        self.assertEqual(coord._talk.started_at, first_start)
+        coord.talk_stop()
+        # The window is used up: a third start in the same live view is refused.
+        coord._talk_window = (coord._live_session_seq, time.monotonic() - TALK.TALK_MAX_S)
+        with self.assertRaises(COORD_TALK.TalkError):
+            await coord.async_talk_start()
+        # A new live session gets a fresh window.
+        coord._set_session_active(False)
+        coord._set_session_active(True)
+        coord._camera_awake = True
+        await coord.async_talk_start()
+        self.assertGreater(coord._talk.started_at, first_start)
+
+    async def test_wait_for_live_ends_promptly_on_unload(self) -> None:
+        coord = coordinator()
+        coord.wake_camera = Mock()
+        asyncio.get_running_loop().call_later(0.2, setattr, coord, "_running", False)
+        started = time.monotonic()
+        with self.assertRaises(COORD_TALK.TalkError) as ctx:
+            await coord.async_talk_start(timeout_s=30)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertIn("stopped", str(ctx.exception))
+        self.assertFalse(coord.talk_active)
+
+
 if __name__ == "__main__":
     unittest.main()

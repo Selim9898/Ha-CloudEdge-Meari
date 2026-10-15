@@ -82,6 +82,7 @@ class WatchState:
     last_seen: float = 0.0  # last time a client was known to be connected
     last_wake: float = float("-inf")
     grants: deque[list[float]] = field(default_factory=deque)
+    talk: deque[list[float]] = field(default_factory=deque)  # [time, seconds]
     lock: threading.RLock = field(
         default_factory=threading.RLock, repr=False, compare=False
     )
@@ -93,6 +94,18 @@ class WatchState:
             while self.grants and self.grants[0][1] <= horizon:
                 self.grants.popleft()
             return sum(end - max(start, horizon) for start, end in self.grants)
+
+    def talk_used(self, now: float) -> float:
+        """Seconds of talk audio sent inside the rolling window."""
+        horizon = now - WATCH_BUDGET_WINDOW_S
+        with self.lock:
+            while self.talk and self.talk[0][0] <= horizon:
+                self.talk.popleft()
+            return sum(seconds for _, seconds in self.talk)
+
+    def add_talk(self, now: float, seconds: float) -> None:
+        with self.lock:
+            self.talk.append([now, seconds])
 
     def grant(self, start: float, end: float) -> None:
         with self.lock:
