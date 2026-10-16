@@ -9,15 +9,16 @@ Each change is a separate commit so it can go upstream as its own PR.
 
 | Branch | Base | Purpose |
 |--------|------|---------|
-| `loox-dogan` | upstream `main` + fork commits | Fork default. Where work lands first. |
-| `main` | `loox-dogan` | The build on the Pi at the test home. Fast-forwarded from `loox-dogan` once a build runs there. |
+| `main` | `loox-dogan` | Fork default and what HACS installs: the build on the Pi at the test home. Fast-forwarded from `loox-dogan` once a build runs there. |
+| `loox-dogan` | upstream `main` + fork commits | Where work lands first. |
 | `fix/webrtc-provider-after-stream-start` | upstream `main` | [#57](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/57): `207256e` + `c50d19c` |
 | `fix/http-stream-source` | upstream `main` | [#58](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/58): `7b083fe` |
 
 Work lands on `loox-dogan` first. A change offered upstream gets its own
 branch off upstream `main`, and later review fixes are cherry-picked onto
-that branch too. Once upstream merges a PR, `loox-dogan` is rebased onto
-the new upstream `main` and the PR branch is deleted.
+that branch too. Once upstream merges a PR, upstream `main` is merged into
+`loox-dogan` (not rebased, so `main` keeps fast-forwarding) and the PR
+branch is deleted.
 
 ## How it differs from upstream
 
@@ -135,10 +136,9 @@ the tone is quiet. PPCS cameras are not supported.
 
 1. HACS → ⋮ → *Custom repositories* → add
    `https://github.com/Selim9898/Ha-CloudEdge-Meari`, type *Integration*.
-2. Open the repository and choose *Download*. HACS installs the repo's
-   default branch or a release. To get `loox-dogan`, either pick it under
-   *Need a different version?* if HACS lists it, or make `loox-dogan` the
-   fork's default branch on GitHub first.
+2. Open the repository and choose *Download*. HACS installs the default
+   branch, `main`. To try an untested `loox-dogan` build, pick it under
+   *Need a different version?* if HACS lists it.
 3. Restart Home Assistant.
 
 If upstream `cloudplus` is already installed through HACS, remove it first.
