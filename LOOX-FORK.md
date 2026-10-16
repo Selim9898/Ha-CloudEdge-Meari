@@ -9,8 +9,8 @@ Each change is a separate commit so it can go upstream as its own PR.
 
 | Branch | Base | Purpose |
 |--------|------|---------|
-| `loox-dogan` | upstream `main` + fork commits | Fork default. What the test home runs. |
-| `main` | mirror of upstream `main` | Never commit here; fast-forward only. |
+| `loox-dogan` | upstream `main` + fork commits | Fork default. Where work lands first. |
+| `main` | `loox-dogan` | The build on the Pi at the test home. Fast-forwarded from `loox-dogan` once a build runs there. |
 | `fix/webrtc-provider-after-stream-start` | upstream `main` | [#57](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/57): `207256e` + `c50d19c` |
 | `fix/http-stream-source` | upstream `main` | [#58](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/58): `7b083fe` |
 
