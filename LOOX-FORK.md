@@ -5,13 +5,27 @@ NoorIQ's test fork of [ajeanney/Ha-CloudEdge-Meari](https://github.com/ajeanney/
 and the Loox app. It tracks upstream and carries fixes we want to offer back.
 Each change is a separate commit so it can go upstream as its own PR.
 
+## Branches
+
+| Branch | Base | Purpose |
+|--------|------|---------|
+| `loox-dogan` | upstream `main` + fork commits | Fork default. What the test home runs. |
+| `main` | mirror of upstream `main` | Never commit here; fast-forward only. |
+| `fix/webrtc-provider-after-stream-start` | upstream `main` | [#57](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/57): `207256e` + `c50d19c` |
+| `fix/http-stream-source` | upstream `main` | [#58](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/58): `7b083fe` |
+
+Work lands on `loox-dogan` first. A change offered upstream gets its own
+branch off upstream `main`, and later review fixes are cherry-picked onto
+that branch too. Once upstream merges a PR, `loox-dogan` is rebased onto
+the new upstream `main` and the PR branch is deleted.
+
 ## How it differs from upstream
 
 Based on upstream `v0.3.3` (5bc9f97). On top of that:
 
 | Commit | What | Upstream |
 |--------|------|----------|
-| `207256e` | fix(camera): offer WebRTC once the stream server has a port | Open PR |
+| `207256e` | fix(camera): offer WebRTC once the stream server has a port | Open PR #57 |
 | `b95dae9` | fix(awake): Camera Awake reports live frames, not wake requests; `live_until` attribute | Not yet offered |
 | `1d59d87` | feat(stream): wake when watched, capped per viewing session, plus a config switch and options | Not yet offered |
 | `ffb0a2f` | LOOX-FORK.md | Fork only |
@@ -20,7 +34,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `6e67e26` | fix(watch-wake): sticky cap, rolling hourly budget, state survives reloads | Fold into the wake-on-watch PR |
 | `b5eae08` | fix(watch-wake): default cap 5 min; viewer hold times documented (HLS figure corrected later) | Fold into the wake-on-watch PR |
 | `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
-| `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Fold into the WebRTC PR |
+| `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | In PR #57 |
 | `c096f28` | docs(fork): commit table | Fork only |
 | `8def0f6` | fix(watch-wake): 90 s keep-alive wake (removed in `32ac655`); idle still over stalls | Fold into the wake-on-watch PR |
 | `a0fbff5` | docs(watch-wake): HLS idle timeout is 30 s | Fold into the wake-on-watch PR |
@@ -40,7 +54,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `99e1a0b` | fix(watch-wake): recovery wake when a watched live session stalls | Fold into the wake-on-watch PR |
 | `5399775` | fix(talk): budget refusal, 5 min talk per hour, 60 s per live view | Talk PR |
 | `e1b1d0b` | fix(signaling): read keep-alive replies whole or reset the connection | With `94e1ece` |
-| `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Own PR (HA + go2rtc 1.9.14 bug) |
+| `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Open PR #58 (HA + go2rtc 1.9.14 bug) |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
