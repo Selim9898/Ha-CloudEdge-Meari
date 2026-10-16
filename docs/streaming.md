@@ -430,6 +430,14 @@ Talk (HA → camera speaker) rides the running live session; wire format in
 
 - Maintain one P2P session per camera stream and fan out the same MPEG-TS
   TCP stream to all consumers.
+- One port, two forms. `stream_source` is `http://<host>:<port>/stream.ts`:
+  the server answers a GET with a `200` and `Content-Type: video/mp2t`, then
+  streams. A client that sends nothing for 0.3 s is a raw TCP reader
+  (`tcp://<host>:<port>`, e.g. Frigate) and gets the bare stream. HA needs
+  the HTTP form: go2rtc reports no `url` for a raw TCP producer, and HA's
+  go2rtc client (`Producer.url` is required) then fails every WebRTC offer
+  with `unknown_error` while that producer runs, so the frontend falls back
+  to HLS. Seen at the test home on 16 Oct 2026 with go2rtc 1.9.14.
 - The local TCP listener is health-checked whenever HA requests a stream
   source. If its accept thread stopped unexpectedly, it is recreated and HA
   receives the new port instead of repeatedly opening a dead endpoint.

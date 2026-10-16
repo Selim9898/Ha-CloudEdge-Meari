@@ -101,5 +101,20 @@ class CameraWebRtcProviderTests(unittest.TestCase):
         self.assertEqual(cam.async_write_ha_state.call_count, 2)
 
 
+class CameraStreamSourceTests(unittest.TestCase):
+    """go2rtc reports a ``url`` only for HTTP producers; HA needs one."""
+
+    def test_stream_source_is_http(self) -> None:
+        cam = CAMERA.__new__(CAMERA)
+        cam._coordinator = SimpleNamespace(stream_port=41234, stream_host="192.168.1.10")
+        source = asyncio.run(cam.stream_source())
+        self.assertEqual(source, "http://192.168.1.10:41234/stream.ts")
+
+    def test_no_stream_source_without_a_port(self) -> None:
+        cam = CAMERA.__new__(CAMERA)
+        cam._coordinator = SimpleNamespace(stream_port=0, stream_host="192.168.1.10")
+        self.assertIsNone(asyncio.run(cam.stream_source()))
+
+
 if __name__ == "__main__":
     unittest.main()

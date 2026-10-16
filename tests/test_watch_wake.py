@@ -646,5 +646,58 @@ class StreamServerClientCountTests(unittest.TestCase):
         return predicate()
 
 
+class StreamServerHttpTests(unittest.TestCase):
+    """HA reads the stream over HTTP; raw TCP readers keep working."""
+
+    def _server(self):
+        server = STREAM_SERVER.StreamServer()
+        server.start()
+        self.addCleanup(server.stop)
+        return server
+
+    @staticmethod
+    def _read_until(sock: socket.socket, marker: bytes, timeout: float = 3.0) -> bytes:
+        sock.settimeout(timeout)
+        data = b""
+        while marker not in data:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return data
+
+    def test_http_get_gets_a_header_then_the_stream(self) -> None:
+        server = self._server()
+        viewer = socket.create_connection(("127.0.0.1", server.port), timeout=2)
+        self.addCleanup(viewer.close)
+        viewer.sendall(b"GET /stream.ts HTTP/1.1\r\nHost: x\r\n\r\n")
+        self.assertTrue(StreamServerClientCountTests._wait(lambda: server.client_count == 1))
+        server.broadcast(b"G" + b"\x00" * 187)
+        data = self._read_until(viewer, b"G")
+        head, _, body = data.partition(b"\r\n\r\n")
+        self.assertTrue(head.startswith(b"HTTP/1.1 200 OK"))
+        self.assertIn(b"Content-Type: video/mp2t", head)
+        self.assertTrue(body.startswith(b"G"))
+
+    def test_raw_tcp_reader_gets_the_stream_without_a_header(self) -> None:
+        server = self._server()
+        viewer = socket.create_connection(("127.0.0.1", server.port), timeout=2)
+        self.addCleanup(viewer.close)
+        self.assertTrue(StreamServerClientCountTests._wait(lambda: server.client_count == 1))
+        server.broadcast(b"G" + b"\x00" * 187)
+        data = self._read_until(viewer, b"G")
+        self.assertTrue(data.startswith(b"G"))
+
+    def test_other_path_gets_404_and_is_not_counted(self) -> None:
+        server = self._server()
+        viewer = socket.create_connection(("127.0.0.1", server.port), timeout=2)
+        self.addCleanup(viewer.close)
+        viewer.sendall(b"GET /nope HTTP/1.1\r\n\r\n")
+        data = self._read_until(viewer, b"\r\n\r\n")
+        self.assertTrue(data.startswith(b"HTTP/1.1 404"))
+        time.sleep(0.2)
+        self.assertEqual(server.client_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
