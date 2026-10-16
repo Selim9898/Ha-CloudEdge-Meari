@@ -450,6 +450,12 @@ Talk (HA → camera speaker) rides the running live session; wire format in
 - Idle streams reuse the latest keyframe/still with the same advertised
   stream properties and low refresh cost; they should **not** push still
   frames at high FPS.
+- The idle still is one continuous stream: the muxer is not restarted
+  between stills, and PTS keeps counting up at 0.5 s steps. Checked on
+  16 Oct 2026 with a 12 min direct read at the test home (2 fps, no gaps,
+  no PTS or continuity-counter jumps). Browser player restarts during the
+  still come from the frontend's visibility handling, not from here; see
+  [diagnosis.md](diagnosis.md#ha-player-restarts-that-are-not-the-stream).
 - Video is copied. Audio-only encoding (G.711 µ-law → AAC) is expected.
   **Avoid video transcoding** so low-power Home Assistant hosts remain
   usable.

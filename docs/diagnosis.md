@@ -103,6 +103,30 @@ fallback exposes raw `HD=0` / `SD=1` when that metadata is absent. The selector
 therefore remains available for sparse shared-device payloads and defaults to
 legacy SD rather than silently requesting HD.
 
+## HA player restarts that are not the stream
+
+HA's WebRTC player (`ha-web-rtc-player`) closes its peer connection when
+the page goes hidden and opens a new one when it is visible again. The HLS
+player does the same. While hidden, the `<video>` keeps the stopped stream:
+`videoWidth` 2x2, `currentTime` 0, no frames. On return, `currentTime`
+restarts at 0 and the picture is back in about a second on the idle still.
+
+Automated browsers and background tabs hit this all the time. In the
+16 Oct 2026 test the agent's browser pane went hidden between tool calls,
+which looked like the player restarting "every few minutes" and once
+losing the still for ~4.5 min. An independent reader on the stream port
+saw unbroken 2 fps video with monotonic PTS over the same window.
+
+Before blaming the integration for a player restart:
+
+1. Log `document.visibilityState` (a `visibilitychange` listener) next to
+   `currentTime`. A restart right after `visible` is the frontend.
+2. Read the stream directly, outside HA:
+   `curl -s http://<ha-host>:<port>/stream.ts | ffprobe -show_packets -select_streams v -`
+   (the port is in `stream_source`). Gaps, PTS jumps or EOF there are ours.
+3. A new `camera/webrtc/offer` without a visibility change is worth a look;
+   one with it is not.
+
 ## When to capture packets
 
 If a behaviour seems to disagree with the official app, capture both sides:

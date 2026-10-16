@@ -71,6 +71,20 @@ workflow, so we leave it alone.
   frame and a recovery wake goes out at once (at most every 30 s). Confirm
   past 2:13 in the next live test, and check the log for "recovery wake".
 
+### Player restarts during the idle still (16 Oct, not a stream bug)
+
+The HA player looked like it restarted every few minutes on the idle still
+(`currentTime` back to 0) and once lost the picture for ~4 min (2x2 px,
+0 fps). Cause: HA's WebRTC and HLS players close the stream when the page
+goes hidden and reopen it when visible, and the agent's browser pane goes
+hidden between tool calls. Every restart in the 16 Oct log followed a
+`visibilitychange`; a 4.5 min hidden spell gave the 2x2 picture. A direct
+read of `/stream.ts` from another machine over the same 12 min saw 2 fps
+with no gaps, PTS jumps or CC errors. No code change. For future browser
+tests, log `document.visibilityState` next to `currentTime` (see
+[docs/diagnosis.md](docs/diagnosis.md#ha-player-restarts-that-are-not-the-stream)).
+A wall tablet that blanks its screen behaves the same way.
+
 ### Live keep-alive after the app capture (to verify at the test home)
 
 A capture of the official ieGeek app (3 min 47 s of live without a gap)
