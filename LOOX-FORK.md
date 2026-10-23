@@ -56,6 +56,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `5399775` | fix(talk): budget refusal, 5 min talk per hour, 60 s per live view | Talk PR |
 | `e1b1d0b` | fix(signaling): read keep-alive replies whole or reset the connection | With `94e1ece` |
 | `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Open PR #58 (HA + go2rtc 1.9.14 bug) |
+| `fd8e5d5` + `a3c310e` | fix(motion): no false motion at midnight (day rollover replayed the summary's last event) | Not yet offered |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").

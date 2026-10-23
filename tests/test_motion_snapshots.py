@@ -109,6 +109,18 @@ class MotionSnapshotTests(unittest.TestCase):
         self.listener._poll_device_events(dispatch=True)
         self.received.assert_called_once_with("Motion", JPEG)
 
+    def test_new_day_does_not_replay_the_summary_event(self):
+        last = {"deviceID": "42", "eventType": 2, "msgID": "evening", "imageUrl": IMAGE_URL}
+        self.api.get_device_events.side_effect = lambda _device, _day: []
+        self.api.get_new_device_events.return_value = [last]
+        self.listener._poll_device_events(dispatch=False)
+        self.listener._poll_day = "19990101"
+        self.listener._poll_device_events(dispatch=True)
+        self.received.assert_not_called()
+        self.api.get_new_device_events.return_value = [last, dict(last, msgID="morning")]
+        self.listener._poll_device_events(dispatch=True)
+        self.received.assert_called_once_with("Motion", JPEG)
+
 
 class SnapshotCacheTests(unittest.TestCase):
     """Check event publication order and a conversion already in progress."""

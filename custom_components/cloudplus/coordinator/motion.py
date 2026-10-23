@@ -121,6 +121,7 @@ class MotionEventListener:
         self._stop_poll = threading.Event()
         self._poll_thread: threading.Thread | None = None
         self._seen_alarm_keys: set[tuple[str, str]] = set()
+        self._last_summary_keys: set[tuple[str, str]] = set()
         self._poll_day: str = ""
         self._mqtt_connect_warned = False
 
@@ -322,6 +323,7 @@ class MotionEventListener:
         except (OSError, RuntimeError, ValueError, KeyError) as exc:
             _LOGGER.debug("New-event summary poll failed: %s", exc)
             return False
+        summary_keys: set[tuple[str, str]] = set()
         for raw_event in events:
             device_id = str(
                 raw_event.get("deviceID")
@@ -332,10 +334,12 @@ class MotionEventListener:
             if not device_id or device_id not in registered_ids:
                 continue
             event_id = self._event_id(raw_event, prefix="summary:")
+            summary_keys.add((device_id, event_id))
             if not self._remember_event(device_id, event_id):
                 continue
             if dispatch:
                 self._handle_payload(json.dumps(raw_event).encode())
+        self._last_summary_keys = summary_keys
         return True
 
     def _poll_device_events(self, dispatch: bool) -> bool:
@@ -344,8 +348,11 @@ class MotionEventListener:
         if day != self._poll_day:
             # Day rolled over: yesterday's ids won't reappear in today's log, so
             # drop them. New events on the fresh day still dispatch normally.
+            # The all-device summary still lists yesterday's newest event, so
+            # the keys of its last answer stay; dropping them fired a false
+            # motion every midnight.
             self._poll_day = day
-            self._seen_alarm_keys.clear()
+            self._seen_alarm_keys = set(self._last_summary_keys)
 
         with self._lock:
             devices = {(dev_id, sn) for dev_id, sn, _cb in self._callbacks}
