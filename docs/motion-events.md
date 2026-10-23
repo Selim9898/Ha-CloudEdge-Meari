@@ -102,8 +102,9 @@ reasons, all of which broke motion for real users:
   without relying on the ambiguous `evt` flag.
 - **Stable de-dup.** Each entry has a unique `msgID`; we remember
   `(deviceID, msgID)` so the same event is never re-fired. The seed pass at
-  startup records existing ids without dispatching; the set is cleared on day
-  rollover and capped to stay bounded.
+  startup records existing ids without dispatching; on day rollover the
+  event-log ids are dropped (the summary's ids stay, or yesterday's last event
+  fires again at midnight), and the set is capped to stay bounded.
 
 The poller also calls:
 

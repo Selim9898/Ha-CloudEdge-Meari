@@ -344,8 +344,12 @@ class MotionEventListener:
         if day != self._poll_day:
             # Day rolled over: yesterday's ids won't reappear in today's log, so
             # drop them. New events on the fresh day still dispatch normally.
+            # The all-device summary still lists yesterday's newest event, so
+            # its keys stay; dropping them fired a false motion every midnight.
             self._poll_day = day
-            self._seen_alarm_keys.clear()
+            self._seen_alarm_keys = {
+                key for key in self._seen_alarm_keys if key[1].startswith("summary:")
+            }
 
         with self._lock:
             devices = {(dev_id, sn) for dev_id, sn, _cb in self._callbacks}
