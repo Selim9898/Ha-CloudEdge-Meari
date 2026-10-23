@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
+import resource
 import socket
 import time
 import unittest
@@ -104,6 +106,21 @@ class StreamServerHttpTests(unittest.TestCase):
         self.assertTrue(_read_until(viewer, b"\r\n\r\n").startswith(b"HTTP/1.1 200 OK"))
         time.sleep(0.2)
         self.assertEqual(server.client_count, 0)
+
+    def test_clients_on_fds_above_1024_are_served(self) -> None:
+        # select() rejects fds >= 1024, which a busy HA process reaches.
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        wanted = 2048 if hard == resource.RLIM_INFINITY else min(hard, 2048)
+        if wanted < 1200:
+            self.skipTest("RLIMIT_NOFILE too low")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, wanted), hard))
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, (soft, hard))
+        for _ in range(1100):
+            self.addCleanup(os.close, os.open(os.devnull, os.O_RDONLY))
+        server = self._server()
+        self._connect(server).sendall(b"GET /stream.ts HTTP/1.1\r\n\r\n")
+        self._connect(server)
+        self.assertTrue(_wait(lambda: server.client_count == 2))
 
 
 if __name__ == "__main__":

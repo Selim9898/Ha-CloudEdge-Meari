@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import collections
 import logging
-import select
 import socket
 import threading
 import time
@@ -48,8 +47,13 @@ def _http_handshake(client: socket.socket) -> bool:
     consumed or sent. A request for another path, or HEAD, is answered and
     dropped.
     """
+    # Socket timeouts, not select(): select() rejects fds >= 1024, which a
+    # busy HA process reaches.
     try:
-        if not select.select([client], [], [], HTTP_SNIFF_S)[0]:
+        client.settimeout(HTTP_SNIFF_S)
+        try:
+            client.recv(1, socket.MSG_PEEK)
+        except TimeoutError:
             return True
         request = b""
         deadline = time.monotonic() + HTTP_REQUEST_TIMEOUT_S
@@ -57,8 +61,7 @@ def _http_handshake(client: socket.socket) -> bool:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or len(request) >= HTTP_REQUEST_MAX_BYTES:
                 return False
-            if not select.select([client], [], [], remaining)[0]:
-                return False
+            client.settimeout(remaining)
             chunk = client.recv(HTTP_REQUEST_MAX_BYTES - len(request))
             if not chunk:
                 return False
@@ -76,6 +79,8 @@ def _http_handshake(client: socket.socket) -> bool:
         return method == b"GET"
     except OSError:
         return False
+    finally:
+        client.settimeout(CLIENT_SEND_TIMEOUT_S)
 
 
 @dataclass
