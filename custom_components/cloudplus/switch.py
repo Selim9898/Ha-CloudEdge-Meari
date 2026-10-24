@@ -41,6 +41,7 @@ from .meari_commands import (
     RGB_LIGHT_SWITCH,
     SLEEP_MODE,
     SOUND_DET_ENABLE,
+    SOUND_LIGHT_ENABLE,
     SOUND_SWITCH,
 )
 
@@ -55,6 +56,9 @@ class IotSwitchSpec:
     code: int
     name: str
     icon: str | None = None
+    # False for commands a sleeping camera may never have reported: the
+    # switch stays usable while the coordinator is up, so a write can reach it.
+    needs_report: bool = True
 
 
 IOT_SWITCHES: tuple[IotSwitchSpec, ...] = (
@@ -100,6 +104,13 @@ IOT_SWITCHES: tuple[IotSwitchSpec, ...] = (
         "mdi:alarm-light",
     ),
     IotSwitchSpec(
+        "siren_alarm",
+        SOUND_LIGHT_ENABLE,
+        "Siren",
+        "mdi:alarm-light",
+        needs_report=False,
+    ),
+    IotSwitchSpec(
         "face_det",
         FACE_RECOGNITION_SWITCH,
         "Face Recognition",
@@ -142,7 +153,9 @@ async def async_setup_entry(
     if coord.is_battery_camera:
         entities.append(CloudEdgeMeariMotionWakeSwitch(coord, entry))
         entities.append(CloudEdgeMeariWatchWakeSwitch(coord, entry))
-    if coord.has_lamp:
+    # The floodlight capability is enough: a sleeping camera may never have
+    # reported the lamp code itself.
+    if coord.has_lamp or coord.supports_iot("floodlight"):
         entities.append(CloudEdgeMeariLampSwitch(coord, entry))
     else:
         _add_lamp_switch_when_reported(coord, entry, async_add_entities)
@@ -204,6 +217,12 @@ class CloudEdgeMeariIotSwitch(CloudEdgeMeariIotEntity, SwitchEntity):
     ) -> None:
         super().__init__(coordinator, entry, spec)
         self._attr_unique_id = f"{coordinator.device_uuid}_iot_switch_{spec.code}"
+
+    @property
+    def available(self) -> bool:
+        if self._spec.needs_report:
+            return super().available
+        return self._coordinator.available
 
     @property
     def is_on(self) -> bool:
