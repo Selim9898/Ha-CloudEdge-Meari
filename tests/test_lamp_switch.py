@@ -121,6 +121,12 @@ class LampSwitchSetupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(lamp_switches(add_entities)), 1)
         self.assertEqual(coord._update_callbacks, [])
 
+    async def test_floodlight_linkage_report_adds_lamp_at_setup(self):
+        coord = coordinator(has_lamp=False)
+        coord._iot_data = {SWITCH.FLIGHT_LINK_LIGHTING_ENABLE: 1}  # caps leave out flt
+        _, add_entities = await self.setup(coord)
+        self.assertEqual(len(lamp_switches(add_entities)), 1)
+
 
 def iot_switches(add_entities: Mock) -> dict[int, Any]:
     return {
@@ -152,6 +158,15 @@ class SirenSwitchTests(unittest.IsolatedAsyncioTestCase):
 
         coord._available = False
         self.assertFalse(siren.available)
+
+    async def test_siren_from_reported_alarm_type(self):
+        coord = coordinator(has_lamp=False)
+        coord._iot_data = {SWITCH.SOUND_LIGHT_TYPE: 1}  # caps leave out sla
+        entry = SimpleNamespace(entry_id="test", async_on_unload=Mock())
+        hass = SimpleNamespace(data={SWITCH.DOMAIN: {entry.entry_id: coord}})
+        add_entities = Mock()
+        await SWITCH.async_setup_entry(hass, entry, add_entities)
+        self.assertIn(SWITCH.SOUND_LIGHT_ENABLE, iot_switches(add_entities))
 
 
 if __name__ == "__main__":
