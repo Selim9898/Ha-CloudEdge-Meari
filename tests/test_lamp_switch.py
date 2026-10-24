@@ -80,7 +80,7 @@ class LampSwitchSetupTests(unittest.IsolatedAsyncioTestCase):
         coord = coordinator(has_lamp=True)
         _, add_entities = await self.setup(coord)
         self.assertEqual(len(lamp_switches(add_entities)), 1)
-        self.assertEqual(coord._update_callbacks, [])
+        self.assertEqual(len(coord._update_callbacks), 1)  # only the Siren waits
 
     async def test_lamp_reported_after_setup_adds_switch_once(self):
         coord = coordinator(has_lamp=False)
@@ -99,12 +99,12 @@ class LampSwitchSetupTests(unittest.IsolatedAsyncioTestCase):
 
         fire_update(coord)  # later updates must not add a second switch
         self.assertEqual(len(lamp_switches(add_entities)), 1)
-        self.assertEqual(coord._update_callbacks, [])
+        self.assertEqual(len(coord._update_callbacks), 1)  # only the Siren waits
 
     async def test_unload_before_lamp_reported_stops_waiting(self):
         coord = coordinator(has_lamp=False)
         entry, add_entities = await self.setup(coord)
-        self.assertEqual(len(coord._update_callbacks), 1)
+        self.assertEqual(len(coord._update_callbacks), 2)  # Lamp and Siren
 
         for unload in (call.args[0] for call in entry.async_on_unload.call_args_list):
             unload()
@@ -119,12 +119,21 @@ class LampSwitchSetupTests(unittest.IsolatedAsyncioTestCase):
         coord._capabilities = {"flt": 1}  # floodlight camera, lamp code never reported
         _, add_entities = await self.setup(coord)
         self.assertEqual(len(lamp_switches(add_entities)), 1)
-        self.assertEqual(coord._update_callbacks, [])
+        self.assertEqual(len(coord._update_callbacks), 1)  # only the Siren waits
 
     async def test_floodlight_linkage_report_adds_lamp_at_setup(self):
         coord = coordinator(has_lamp=False)
         coord._iot_data = {SWITCH.FLIGHT_LINK_LIGHTING_ENABLE: 1}  # caps leave out flt
         _, add_entities = await self.setup(coord)
+        self.assertEqual(len(lamp_switches(add_entities)), 1)
+
+    async def test_floodlight_linkage_reported_after_setup_adds_lamp(self):
+        coord = coordinator(has_lamp=False)
+        _, add_entities = await self.setup(coord)
+        self.assertEqual(lamp_switches(add_entities), [])
+
+        coord._iot_data = {SWITCH.FLIGHT_LINK_LIGHTING_ENABLE: 1}  # status poll
+        fire_update(coord)
         self.assertEqual(len(lamp_switches(add_entities)), 1)
 
 
@@ -167,6 +176,27 @@ class SirenSwitchTests(unittest.IsolatedAsyncioTestCase):
         add_entities = Mock()
         await SWITCH.async_setup_entry(hass, entry, add_entities)
         self.assertIn(SWITCH.SOUND_LIGHT_ENABLE, iot_switches(add_entities))
+
+    async def test_siren_added_when_alarm_type_reported_after_setup(self):
+        coord = coordinator(has_lamp=True)
+        entry = SimpleNamespace(entry_id="test", async_on_unload=Mock())
+        hass = SimpleNamespace(data={SWITCH.DOMAIN: {entry.entry_id: coord}})
+        add_entities = Mock()
+        await SWITCH.async_setup_entry(hass, entry, add_entities)
+        self.assertNotIn(SWITCH.SOUND_LIGHT_ENABLE, iot_switches(add_entities))
+
+        coord._iot_data = {SWITCH.SOUND_LIGHT_TYPE: 1}  # status poll
+        fire_update(coord)
+        fire_update(coord)
+        sirens = [
+            entity
+            for call in add_entities.call_args_list
+            for entity in call.args[0]
+            if getattr(entity, "_spec", None) is not None
+            and entity._spec.code == SWITCH.SOUND_LIGHT_ENABLE
+        ]
+        self.assertEqual(len(sirens), 1)
+        self.assertEqual(coord._update_callbacks, [])
 
 
 if __name__ == "__main__":

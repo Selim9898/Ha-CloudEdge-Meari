@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -158,53 +159,81 @@ async def async_setup_entry(
     if coord.is_battery_camera:
         entities.append(CloudEdgeMeariMotionWakeSwitch(coord, entry))
         entities.append(CloudEdgeMeariWatchWakeSwitch(coord, entry))
-    # A floodlight camera is enough: a sleeping camera may never have reported
-    # the lamp code itself, and some leave floodlight out of their capability
-    # list but report the floodlight linkage.
-    if (
-        coord.has_lamp
-        or coord.supports_iot("floodlight")
-        or coord.has_iot_code(FLIGHT_LINK_LIGHTING_ENABLE)
-    ):
+    if _has_lamp(coord):
         entities.append(CloudEdgeMeariLampSwitch(coord, entry))
     else:
-        _add_lamp_switch_when_reported(coord, entry, async_add_entities)
-    entities.extend(
-        CloudEdgeMeariIotSwitch(coord, entry, spec)
-        for spec in IOT_SWITCHES
-        if (spec.feature and coord.supports_iot(spec.feature))
-        or coord.has_iot_code(spec.code)
-        or (spec.sibling is not None and coord.has_iot_code(spec.sibling))
-    )
+        _add_switch_when_reported(
+            coord,
+            entry,
+            async_add_entities,
+            partial(_has_lamp, coord),
+            partial(CloudEdgeMeariLampSwitch, coord, entry),
+        )
+    for spec in IOT_SWITCHES:
+        if _supports_iot_switch(coord, spec):
+            entities.append(CloudEdgeMeariIotSwitch(coord, entry, spec))
+        elif spec.sibling is not None:
+            _add_switch_when_reported(
+                coord,
+                entry,
+                async_add_entities,
+                partial(_supports_iot_switch, coord, spec),
+                partial(CloudEdgeMeariIotSwitch, coord, entry, spec),
+            )
     async_add_entities(entities)
 
 
-def _add_lamp_switch_when_reported(
+def _has_lamp(coord: CloudEdgeMeariCoordinator) -> bool:
+    """Return whether the camera has a floodlight the Lamp switch can drive.
+
+    A sleeping camera may never have reported the lamp code itself, and some
+    leave floodlight out of their capability list but report the linkage.
+    """
+    return (
+        coord.has_lamp
+        or coord.supports_iot("floodlight")
+        or coord.has_iot_code(FLIGHT_LINK_LIGHTING_ENABLE)
+    )
+
+
+def _supports_iot_switch(coord: CloudEdgeMeariCoordinator, spec: IotSwitchSpec) -> bool:
+    return bool(
+        (spec.feature and coord.supports_iot(spec.feature))
+        or coord.has_iot_code(spec.code)
+        or (spec.sibling is not None and coord.has_iot_code(spec.sibling))
+    )
+
+
+def _add_switch_when_reported(
     coord: CloudEdgeMeariCoordinator,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
+    ready: Callable[[], bool],
+    make: Callable[[], SwitchEntity],
 ) -> None:
-    """Add the Lamp switch once the camera first reports its lamp value.
+    """Add a switch once the camera first reports what shows it has the feature.
 
-    The IoT config read during setup can come back without the lamp code (or
-    fail), even on a floodlight camera; the coordinator's status poll picks it
-    up later, but by then the platform has been set up. Without this the switch
-    would stay missing until the config entry is reloaded.
+    The IoT config read during setup can come back without those codes (or
+    fail), even on a floodlight camera; the coordinator's status poll picks
+    them up later, but by then the platform has been set up. Without this the
+    switch would stay missing until the config entry is reloaded.
     """
     unsub: Callable[[], None] | None = None
 
     @callback
-    def _check_lamp() -> None:
+    def _check() -> None:
         nonlocal unsub
-        if unsub is None or not coord.has_lamp:
+        if unsub is None or not ready():
             return
         unsub()
         unsub = None
+        switch = make()
         _LOGGER.debug(
-            "Lamp reported for %s after setup; adding the Lamp switch",
+            "Feature reported for %s after setup; adding %s",
             coord.device_name,
+            type(switch).__name__,
         )
-        async_add_entities([CloudEdgeMeariLampSwitch(coord, entry)])
+        async_add_entities([switch])
 
     @callback
     def _stop_waiting() -> None:
@@ -213,7 +242,7 @@ def _add_lamp_switch_when_reported(
             unsub()
             unsub = None
 
-    unsub = coord.register_update_callback(_check_lamp)
+    unsub = coord.register_update_callback(_check)
     entry.async_on_unload(_stop_waiting)
 
 
