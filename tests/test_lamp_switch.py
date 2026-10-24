@@ -114,6 +114,60 @@ class LampSwitchSetupTests(unittest.IsolatedAsyncioTestCase):
         fire_update(coord)
         self.assertEqual(lamp_switches(add_entities), [])
 
+    async def test_floodlight_capability_adds_lamp_at_setup(self):
+        coord = coordinator(has_lamp=False)
+        coord._capabilities = {"flt": 1}  # floodlight camera, lamp code never reported
+        _, add_entities = await self.setup(coord)
+        self.assertEqual(len(lamp_switches(add_entities)), 1)
+        self.assertEqual(coord._update_callbacks, [])
+
+    async def test_floodlight_linkage_report_adds_lamp_at_setup(self):
+        coord = coordinator(has_lamp=False)
+        coord._iot_data = {SWITCH.FLIGHT_LINK_LIGHTING_ENABLE: 1}  # caps leave out flt
+        _, add_entities = await self.setup(coord)
+        self.assertEqual(len(lamp_switches(add_entities)), 1)
+
+
+def iot_switches(add_entities: Mock) -> dict[int, Any]:
+    return {
+        entity._spec.code: entity
+        for call in add_entities.call_args_list
+        for entity in call.args[0]
+        if isinstance(entity, SWITCH.CloudEdgeMeariIotSwitch)
+    }
+
+
+class SirenSwitchTests(unittest.IsolatedAsyncioTestCase):
+    """The manual Siren switch (IoT 182) is usable before the camera reports it."""
+
+    async def test_siren_usable_before_reported(self):
+        coord = coordinator(has_lamp=False)
+        coord._capabilities = {"sir": 1, "sla": 8}
+        entry = SimpleNamespace(entry_id="test", async_on_unload=Mock())
+        hass = SimpleNamespace(data={SWITCH.DOMAIN: {entry.entry_id: coord}})
+        add_entities = Mock()
+        await SWITCH.async_setup_entry(hass, entry, add_entities)
+
+        switches = iot_switches(add_entities)
+        siren = switches[SWITCH.SOUND_LIGHT_ENABLE]
+        self.assertEqual(siren._attr_name, "Siren")
+        self.assertTrue(siren.available)
+        self.assertFalse(siren.is_on)
+        # settings still wait for a reported value
+        self.assertFalse(switches[SWITCH.FLIGHT_LINK_SIREN_ENABLE].available)
+
+        coord._available = False
+        self.assertFalse(siren.available)
+
+    async def test_siren_from_reported_alarm_type(self):
+        coord = coordinator(has_lamp=False)
+        coord._iot_data = {SWITCH.SOUND_LIGHT_TYPE: 1}  # caps leave out sla
+        entry = SimpleNamespace(entry_id="test", async_on_unload=Mock())
+        hass = SimpleNamespace(data={SWITCH.DOMAIN: {entry.entry_id: coord}})
+        add_entities = Mock()
+        await SWITCH.async_setup_entry(hass, entry, add_entities)
+        self.assertIn(SWITCH.SOUND_LIGHT_ENABLE, iot_switches(add_entities))
+
 
 if __name__ == "__main__":
     unittest.main()

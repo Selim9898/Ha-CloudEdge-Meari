@@ -164,7 +164,7 @@ setup and exposes only those that exist. Expect a subset of:
   Tracking, Sound Detection, Crying Detection, ONVIF, SD Recording, PIR
   Sensor, Floodlight / Siren Linkage, Face Recognition, Sleep Mode, RGB
   Light, Anti-Jamming, PTZ Patrol, Laser Toy, Pet Alarm, HomeKit, Auto
-  Update, OSD Watermark, Brand Logo, Sound, Lamp.
+  Update, OSD Watermark, Brand Logo, Sound, Lamp, Siren.
 - **Numbers** (sliders): Motion / Sound / Human / PIR Sensitivity, PIR
   Interval, Floodlight Brightness & Duration, Speaker Volume, Warm Light
   Brightness.
