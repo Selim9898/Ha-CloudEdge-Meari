@@ -58,6 +58,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Open PR #58 (HA + go2rtc 1.9.14 bug) |
 | `fd8e5d5` + `a3c310e` | fix(motion): no false motion at midnight (day rollover replayed the summary's last event) | Not yet offered |
 | `43b4f0e` + `3a59d93` + `873d4de` | feat(switch): Lamp switch from the floodlight capability or linkage; Siren switch on IoT 182, usable before the camera reports it; both added when the status poll first reports them | Not yet offered |
+| `13ce854` | fix(switch): Siren writes IoT 823 (manual siren) instead of 182 (sound/light alarm on detection); same entity id | Not yet offered |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves" and "Wake when watched").
