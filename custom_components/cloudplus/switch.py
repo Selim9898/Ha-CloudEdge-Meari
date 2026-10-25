@@ -25,6 +25,7 @@ from .meari_commands import (
     FACE_RECOGNITION_SWITCH,
     FLIGHT_LINK_LIGHTING_ENABLE,
     FLIGHT_LINK_SIREN_ENABLE,
+    FLIGHT_SIREN_SWITCH,
     HOMEKIT_ENABLE,
     HUMAN_DET_ENABLE,
     HUMAN_TRACK_ENABLE,
@@ -64,6 +65,9 @@ class IotSwitchSpec:
     # Another code whose report shows the camera has this feature, for
     # cameras whose capability list leaves it out.
     sibling: int | None = None
+    # The code in the unique id when it differs from the one written, so a
+    # switch moved to another code keeps its entity id.
+    id_code: int | None = None
 
 
 IOT_SWITCHES: tuple[IotSwitchSpec, ...] = (
@@ -108,13 +112,16 @@ IOT_SWITCHES: tuple[IotSwitchSpec, ...] = (
         "Siren Linkage",
         "mdi:alarm-light",
     ),
+    # 823 sounds the siren now; 182 (SOUND_LIGHT_ENABLE) only arms the
+    # sound/light alarm on detection, in the mode 183 picks (can be light only).
     IotSwitchSpec(
         "siren_alarm",
-        SOUND_LIGHT_ENABLE,
+        FLIGHT_SIREN_SWITCH,
         "Siren",
         "mdi:alarm-light",
         needs_report=False,
         sibling=SOUND_LIGHT_TYPE,
+        id_code=SOUND_LIGHT_ENABLE,
     ),
     IotSwitchSpec(
         "face_det",
@@ -256,7 +263,9 @@ class CloudEdgeMeariIotSwitch(CloudEdgeMeariIotEntity, SwitchEntity):
         spec: IotSwitchSpec,
     ) -> None:
         super().__init__(coordinator, entry, spec)
-        self._attr_unique_id = f"{coordinator.device_uuid}_iot_switch_{spec.code}"
+        self._attr_unique_id = (
+            f"{coordinator.device_uuid}_iot_switch_{spec.id_code or spec.code}"
+        )
 
     @property
     def available(self) -> bool:
