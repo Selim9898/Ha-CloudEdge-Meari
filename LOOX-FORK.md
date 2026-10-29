@@ -59,9 +59,12 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `fd8e5d5` + `a3c310e` | fix(motion): no false motion at midnight (day rollover replayed the summary's last event) | Not yet offered |
 | `43b4f0e` + `3a59d93` + `873d4de` | feat(switch): Lamp switch from the floodlight capability or linkage; Siren switch on IoT 182, usable before the camera reports it; both added when the status poll first reports them | Not yet offered |
 | `13ce854` | fix(switch): Siren writes IoT 823 (manual siren) instead of 182 (sound/light alarm on detection); same entity id | Not yet offered |
+| `cfa5517` | fix(motion): event poll retries with backoff until the cloud answers; the poll thread can't die; outage backlog not fired as motion | Not yet offered |
+| `95099e2` | fix(idle): no idle-still wakes while signaling says the camera is offline; probes back off 5 min to 2 h | Not yet offered |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
-"Camera Awake reflects what the stream serves" and "Wake when watched").
+"Camera Awake reflects what the stream serves", "Wake when watched" and
+"Cloud-offline battery cameras").
 The manifest still says `0.3.3`. A version bump triggers the release
 workflow, so we leave it alone.
 
