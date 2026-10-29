@@ -17,7 +17,13 @@ from ..motion_event import parse_motion_event
 
 _LOGGER = logging.getLogger(__name__)
 ALARM_POLL_INTERVAL = 15.0
+# Consecutive poll failures back off from 60 s, doubling to 15 min, and keep
+# retrying (with a fresh login each time) until a poll succeeds again.
 ALARM_POLL_ERROR_INTERVAL = 60.0
+ALARM_POLL_ERROR_MAX_INTERVAL = 900.0
+# After failing this long, the recovering poll re-seeds instead of firing
+# every event of the outage as fresh motion (and waking the camera for it).
+ALARM_POLL_STALE_AFTER_S = 120.0
 # Cap on remembered event ids so the dedup set can't grow without bound.
 _SEEN_ALARM_CAP = 4000
 _IMAGE_URL_KEYS = (
@@ -124,6 +130,8 @@ class MotionEventListener:
         self._last_summary_keys: set[tuple[str, str]] = set()
         self._poll_day: str = ""
         self._mqtt_connect_warned = False
+        self._poll_failures = 0
+        self._poll_failing_since = 0.0
 
     @property
     def has_callbacks(self) -> bool:
@@ -256,27 +264,74 @@ class MotionEventListener:
         # delivery path whenever the live MQTT push is unavailable — most often
         # because the broker requires clientId == userID, so a phone logged in
         # to the same account keeps evicting our MQTT session.
+        #
+        # Any failure, of any type, is retried: this thread is the only motion
+        # path when MQTT is down, and it is only restarted when the camera's
+        # session restarts. An exception escaping here (a malformed cloud reply
+        # during an outage, say) used to end motion until HA restarted.
         seeded = False
         while not self._stop_poll.is_set():
             try:
-                if not self._poll_device_events(dispatch=seeded):
+                stale = self._poll_outage_s() > ALARM_POLL_STALE_AFTER_S
+                if not self._poll_device_events(dispatch=seeded and not stale):
                     raise RuntimeError("all motion event endpoints failed")
                 seeded = True
+                self._note_poll_ok(skipped_stale=stale)
                 wait_s = ALARM_POLL_INTERVAL
-            except (OSError, RuntimeError, ValueError, KeyError) as exc:
-                _LOGGER.debug("Alarm event poll failed: %s", exc)
-                wait_s = (
-                    ALARM_POLL_INTERVAL
-                    if self._reauthenticate_api()
-                    else ALARM_POLL_ERROR_INTERVAL
-                )
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                wait_s = self._note_poll_failed(exc)
             self._stop_poll.wait(wait_s)
+
+    def _poll_outage_s(self) -> float:
+        if not self._poll_failures:
+            return 0.0
+        return time.monotonic() - self._poll_failing_since
+
+    def _note_poll_ok(self, *, skipped_stale: bool = False) -> None:
+        if not self._poll_failures:
+            return
+        _LOGGER.info(
+            "Motion event poll recovered after %d failed attempts (%.0f min)%s",
+            self._poll_failures,
+            self._poll_outage_s() / 60.0,
+            "; events from the outage were not fired" if skipped_stale else "",
+        )
+        self._poll_failures = 0
+        self._poll_failing_since = 0.0
+
+    def _note_poll_failed(self, exc: Exception) -> float:
+        """Log a failed poll, renew the cloud session, return the wait."""
+        self._poll_failures += 1
+        if self._poll_failures == 1:
+            self._poll_failing_since = time.monotonic()
+            _LOGGER.warning(
+                "Motion event poll failed; retrying with backoff until it "
+                "recovers: %s",
+                exc,
+            )
+        else:
+            _LOGGER.debug(
+                "Motion event poll failed (attempt %d): %s",
+                self._poll_failures,
+                exc,
+            )
+        reauthenticated = self._reauthenticate_api()
+        if reauthenticated and self._poll_failures == 1:
+            # A fresh token usually fixes it; try again at the normal pace.
+            return ALARM_POLL_INTERVAL
+        return min(
+            ALARM_POLL_ERROR_MAX_INTERVAL,
+            ALARM_POLL_ERROR_INTERVAL * 2 ** min(self._poll_failures - 1, 10),
+        )
 
     def _reauthenticate_api(self) -> bool:
         try:
             self._api.login()
-        except (OSError, RuntimeError, ValueError, KeyError) as exc:
-            _LOGGER.warning("Motion event reauthentication failed: %s", exc)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # login() parses several cloud replies; a degraded one can raise
+            # TypeError or AttributeError, not just the usual four.
+            log = _LOGGER.warning if self._poll_failures <= 1 else _LOGGER.debug
+            log("Motion event reauthentication failed: %s", exc)
             return False
 
         client = self._client
@@ -285,7 +340,8 @@ class MotionEventListener:
                 self._api.access_id,
                 self._api.mqtt_signature,
             )
-        _LOGGER.info("Motion event cloud session reauthenticated")
+        log = _LOGGER.info if self._poll_failures <= 1 else _LOGGER.debug
+        log("Motion event cloud session reauthenticated")
         return True
 
     def _remember_event(self, device_id: str, event_id: str) -> bool:
