@@ -146,6 +146,10 @@ Failures back off and never end the poller:
   recovering poll re-seeds instead of dispatching: events from the outage
   would otherwise all fire as new motion and wake the camera for nothing.
 
+Motion events originate at the camera. If signaling reports the camera
+`offline` (see [streaming.md](streaming.md#cloud-offline-battery-cameras)),
+there are no events to poll, however healthy the poller is.
+
 ## Practical guidance
 
 - If MQTT connect logs `Bad user name or password`, low-latency MQTT push is

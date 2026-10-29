@@ -89,6 +89,7 @@ unsupported choices and out-of-range number writes are rejected locally.
 | `motion.py` | Translates raw MQTT alarms into HA binary-sensor pulses; the event-log poll fallback retries with backoff until the cloud answers. |
 | `talk.py` | Talk session lifecycle: wake and wait for live, keep live while talking, charge the watch budget. |
 | `idle.py` | Idle still loop: repeats the last keyframe while a snap camera sleeps (and covers watched stalls). |
+| `offline.py` | Cloud-offline gate: while signaling reports a snap camera `offline`, idle-still grabs stop waking it and probe on a 5 min to 2 h backoff. |
 | `watch_wake.py` | Wake when watched: viewing sessions on the stream server extend the snap live window, with a per-session cap. |
 | `iot.py` | Capability parsing and feature checks, IoT value normalization/lookups. |
 | `mpegts.py` + `muxer.py` | ffmpeg-based MPEG-TS muxer (video copy, audio encode). |

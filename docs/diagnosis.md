@@ -73,6 +73,8 @@ python debug.py --debug stream … 2>&1 | grep -E \
 | `Motion event cloud session reauthenticated` | Both motion polling endpoints failed and the listener renewed its cloud credentials before continuing. Logged once per outage; repeats are debug. |
 | `Motion event poll failed; retrying with backoff until it recovers` | First failed motion poll of an outage. Retries back off 60 s to 15 min until one succeeds. |
 | `Motion event poll recovered after N failed attempts (X min)` | The motion poll works again. With `events from the outage were not fired`, the backlog was seeded, not replayed as motion. |
+| `Camera X is offline in the cloud; idle still wakes paused` | Signaling reported the snap camera `offline`. No idle-still wakes until it is reachable again; probes back off 5 min to 2 h. Check the camera itself (battery, Wi-Fi, power cycle). |
+| `Camera X is reachable again (reason)` | A frame arrived or signaling saw it `online`/`dormancy`; the normal idle-still retry is back. |
 | `Local stream listener stopped` | The HA-facing TCP accept loop exited unexpectedly. The next stream-source request recreates it on a healthy port. |
 
 HA's own `Stream ended; no additional packets` message means that one stream

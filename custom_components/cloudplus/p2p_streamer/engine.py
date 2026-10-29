@@ -147,6 +147,10 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
         self._last_turn_endpoint: tuple[str, int] | None = None
         self._last_peer_endpoint: tuple[str, int] | None = None
         self._last_candidate_count = 0
+        # Last device status the signaling server reported (online, dormancy,
+        # offline, ...). The coordinator reads it to stop idle wakes while the
+        # cloud says the camera is offline.
+        self._last_device_status = ""
         self._keyframe_request = threading.Event()
         # True while a dormant camera is actively being woken — watchdogs must
         # not restart the session underneath the dormancy-wake budget.
@@ -210,6 +214,7 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
             "turn_endpoint": format_endpoint(self._last_turn_endpoint),
             "peer_endpoint": format_endpoint(self._last_peer_endpoint),
             "candidate_count": self._last_candidate_count,
+            "device_status": self._last_device_status,
             "transport": "ppcs" if self._uses_ppcs else "webrtc",
         }
 
@@ -753,6 +758,7 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
 
         status = sig.query_device_status(device_uuid)
         device_status = status.get("status", "unknown")
+        self._last_device_status = str(device_status).lower()
         was_dormant = device_status == "dormancy"
         fire_wake: Callable[[], None] | None = None
         if was_dormant:
