@@ -77,7 +77,7 @@ class IdleGrabOfflineTests(unittest.TestCase):
         self.coord._next_idle_grab = 0.0
         with self.assertLogs(OFFLINE._LOGGER, "WARNING") as logs:
             self.coord._maybe_grab_idle_frame(time.monotonic())
-        self.assertTrue(self.coord.cloud_offline)
+        self.assertTrue(self.coord._cloud_offline)
         self.assertIn("offline in the cloud", logs.output[0])
         wakes = self.coord._send_wake.call_count
 
@@ -112,7 +112,7 @@ class IdleGrabOfflineTests(unittest.TestCase):
         self.coord._next_offline_probe = 0.0
         self.coord._next_offline_status_check = time.monotonic() + 10**6
         self.coord._maybe_grab_idle_frame(time.monotonic())
-        self.assertTrue(self.coord.cloud_offline)
+        self.assertTrue(self.coord._cloud_offline)
         self.coord._send_wake.assert_not_called()
 
     def test_cloud_status_turning_online_probes_at_once(self) -> None:
@@ -130,7 +130,7 @@ class IdleGrabOfflineTests(unittest.TestCase):
         self.coord._maybe_grab_idle_frame(now + OFFLINE.OFFLINE_STATUS_CHECK_S)
         starts.assert_called()
         # Signaling saw the camera reachable: normal retries take over.
-        self.assertFalse(self.coord.cloud_offline)
+        self.assertFalse(self.coord._cloud_offline)
 
     def test_online_reading_without_an_offline_one_waits_for_the_backoff(self) -> None:
         starts = session_reports(self.coord, "offline")
@@ -142,7 +142,7 @@ class IdleGrabOfflineTests(unittest.TestCase):
     def test_live_frame_from_a_user_wake_clears_offline(self) -> None:
         self.coord._enter_cloud_offline(time.monotonic())
         self.coord._remember_idle_frame(self.coord._video_codec, b"\x00\x00\x01keyframe")
-        self.assertFalse(self.coord.cloud_offline)
+        self.assertFalse(self.coord._cloud_offline)
         self.assertEqual(self.coord._offline_probe_s, OFFLINE.OFFLINE_PROBE_INITIAL_S)
 
     def test_quality_change_still_grabs_while_offline(self) -> None:

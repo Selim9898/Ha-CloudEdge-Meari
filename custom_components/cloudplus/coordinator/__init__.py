@@ -756,7 +756,6 @@ class CloudEdgeMeariCoordinator(
             return
 
         self._p2p_session_generation += 1
-        self._last_p2p_diagnostics = {}
         self._stream_started_at = time.monotonic()
         self._stream_started_keyframe = False
         self._reset_live_mux_timing()

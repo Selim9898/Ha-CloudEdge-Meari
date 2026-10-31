@@ -36,11 +36,6 @@ class CloudOfflineMixin:
         self._next_offline_status_check = 0.0
         self._offline_api_said_offline = False
 
-    @property
-    def cloud_offline(self) -> bool:
-        """True while the cloud reports the camera offline (idle wakes paused)."""
-        return self._cloud_offline
-
     def _signaling_device_status(self) -> str:
         """Device status the last finished P2P session got from signaling."""
         return str(self._last_p2p_diagnostics.get("device_status") or "")

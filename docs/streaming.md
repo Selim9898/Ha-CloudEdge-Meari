@@ -203,14 +203,15 @@ stale client joins, and source-idle recovery, but not while video is current.
 ## Cloud-offline battery cameras
 
 An idle-still grab (`_run_initial_frame_grab`) wakes the camera every 8 s
-for up to 45 s and holds Camera Awake on while it runs. When signaling
-answers `status=offline`, none of that can work, yet the retry loop
-(20 s, x1.5, capped at 3 min) kept doing it, so Camera Awake flipped every
-few minutes and the wakes went out regardless. `coordinator/offline.py`
-handles it:
+for up to 45 s and holds Camera Awake on while it runs, retrying after
+20 s, x1.5, capped at 3 min. When signaling answers `status=offline`, none
+of that can work. `coordinator/offline.py` parks it:
 
 - The engine records the status signaling reported (`device_status` in the
-  session diagnostics). A grab stops as soon as a session ends with
+  session diagnostics). A server that doesn't know the camera also answers
+  `offline` or `unknown`, so across all servers tried in one session the
+  strongest answer is kept: `online`/`dormancy`, then `offline`, then
+  `unknown` or nothing. A grab stops as soon as a session ends with
   `offline`, instead of waking for the full 45 s.
 - A failed grab with `offline` parks the idle still. The next attempt is a
   probe on a backoff of 5 min doubling to 2 h (`OFFLINE_PROBE_INITIAL_S`,

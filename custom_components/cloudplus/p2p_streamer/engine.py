@@ -73,6 +73,7 @@ from .session_support import (
     _client_id_for,
     _client_uuid_for,
     _next_session_index,
+    stronger_device_status,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -147,9 +148,9 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
         self._last_turn_endpoint: tuple[str, int] | None = None
         self._last_peer_endpoint: tuple[str, int] | None = None
         self._last_candidate_count = 0
-        # Last device status the signaling server reported (online, dormancy,
-        # offline, ...). The coordinator reads it to stop idle wakes while the
-        # cloud says the camera is offline.
+        # Strongest device status any signaling server reported this session
+        # (see `stronger_device_status`). The coordinator reads it to stop idle
+        # wakes while the cloud says the camera is offline.
         self._last_device_status = ""
         self._keyframe_request = threading.Event()
         # True while a dormant camera is actively being woken — watchdogs must
@@ -393,6 +394,7 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
 
     def run_session(self) -> tuple[int, int]:
         self._running = True
+        self._last_device_status = ""
         try:
             for host_key, uses_video_password in self._auth_attempts():
                 self._video_count = 0
@@ -758,7 +760,9 @@ class P2PStreamer(LiveSessionMixin, TalkStreamerMixin):
 
         status = sig.query_device_status(device_uuid)
         device_status = status.get("status", "unknown")
-        self._last_device_status = str(device_status).lower()
+        self._last_device_status = stronger_device_status(
+            self._last_device_status, device_status
+        )
         was_dormant = device_status == "dormancy"
         fire_wake: Callable[[], None] | None = None
         if was_dormant:
