@@ -45,10 +45,27 @@ AUTH_FALLBACK_RESULT = (-1, -1)
 SIGNALING_CONNECT_TIMEOUT_S = 5.0
 CLIENT_KEYFRAME_REQUEST_DEBOUNCE_S = 4.0
 _CLIENT_SESSION_LOCK = threading.Lock()
+# How much a signaling device status says about the camera; anything else
+# (unknown, empty) ranks 0.
+_DEVICE_STATUS_RANK = {"online": 2, "dormancy": 2, "offline": 1}
 
 
 class SignalingClusterMiss(RuntimeError):
     """The MsgSvr endpoint is reachable but does not know this device."""
+
+
+def stronger_device_status(current: str, reported: object) -> str:
+    """The better of two signaling device statuses, lowercased.
+
+    A server that doesn't know the camera answers ``offline`` or ``unknown``
+    too, so a later server must not overwrite a better answer: online or
+    dormancy beats offline, which beats unknown or nothing.
+    """
+    status = str(reported or "").lower()
+    rank = _DEVICE_STATUS_RANK.get(status, 0)
+    if not current or rank > _DEVICE_STATUS_RANK.get(current, 0):
+        return status
+    return current
 
 
 def _unwrap_iva_payload(data: bytes) -> bytes:

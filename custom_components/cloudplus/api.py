@@ -819,6 +819,8 @@ class MeariApiClient:
         params = {"action": "query", "deviceid": device_id}
         try:
             result = self._openapi_get("/openapi/device/status", params)
+            if not isinstance(result, dict):
+                return "unknown"
             return result.get("status", "unknown")
         except (OSError, ValueError, KeyError, RuntimeError) as e:
             _LOGGER.debug("Status query failed: %s", e)

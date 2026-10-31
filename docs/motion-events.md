@@ -126,6 +126,27 @@ updates the MQTT credentials used for later reconnects, and resumes polling.
 This prevents an expired token or a wedged HTTPS connection from leaving
 motion delivery permanently stopped until Home Assistant restarts.
 
+Failures back off and never end the poller:
+
+- Consecutive failed polls wait 60 s, doubling to 15 min
+  (`ALARM_POLL_ERROR_INTERVAL`, `ALARM_POLL_ERROR_MAX_INTERVAL`), each
+  with a fresh login. Only the first failure after a successful poll
+  retries at the normal 15 s, when its login worked.
+- Every exception is caught at the poll thread's boundary, including from
+  `login()`, which parses several cloud replies and can raise `TypeError`
+  or `AttributeError` on a degraded one.
+- One warning per outage (`Motion event poll failed; retrying with backoff
+  until it recovers`), one for its first failed login, debug after that,
+  and one info line when a poll succeeds again (`Motion event poll
+  recovered after N failed attempts`).
+- After failing for more than 2 min (`ALARM_POLL_STALE_AFTER_S`) the
+  recovering poll re-seeds instead of dispatching: events from the outage
+  would otherwise all fire as new motion and wake the camera for nothing.
+
+Motion events originate at the camera. If signaling reports the camera
+`offline` (see [streaming.md](streaming.md#cloud-offline-battery-cameras)),
+there are no events to poll, however healthy the poller is.
+
 ## Practical guidance
 
 - If MQTT connect logs `Bad user name or password`, low-latency MQTT push is

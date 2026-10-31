@@ -200,6 +200,37 @@ budget because an older battery camera may register late. After connection,
 heartbeats sustain the session; `START_LIVE` is reissued for wake retries,
 stale client joins, and source-idle recovery, but not while video is current.
 
+## Cloud-offline battery cameras
+
+An idle-still grab (`_run_initial_frame_grab`) wakes the camera every 8 s
+for up to 45 s and holds Camera Awake on while it runs, retrying after
+20 s, x1.5, capped at 3 min. When signaling answers `status=offline`, none
+of that can work. `coordinator/offline.py` parks it:
+
+- The engine records the status signaling reported (`device_status` in the
+  session diagnostics). A server that doesn't know the camera also answers
+  `offline` or `unknown`, so across all servers tried in one session the
+  strongest answer is kept: `online`/`dormancy`, then `offline`, then
+  `unknown` or nothing. A grab stops as soon as a session ends with
+  `offline`, instead of waking for the full 45 s.
+- A failed grab with `offline` parks the idle still. The next attempt is a
+  probe on a backoff of 5 min doubling to 2 h (`OFFLINE_PROBE_INITIAL_S`,
+  `OFFLINE_PROBE_MAX_S`). A probe opens P2P but sends no coordinator wake
+  and does not set Camera Awake; the engine still wakes a camera signaling
+  reports `dormancy`, which is the normal path for a reachable camera.
+- Every 5 min the OpenAPI status (`/openapi/device/status`, cloud only)
+  is read. A change from `offline` to `online`/`dormancy` probes at once.
+  An `online` reading that never followed an `offline` one is ignored,
+  so a disagreement with signaling can't turn into 5 min wake loops.
+- A probe that finds no status at all (network down) stays parked.
+- Any keyframe clears it (`_remember_idle_frame`), so a live view the user
+  opens, a motion wake or wake-when-watched resumes everything. Those
+  paths are never gated. A quality change still grabs at once.
+
+The state lives on the coordinator, so it survives a session-loop restart
+but not a reload or an HA restart; the first grab after either is a normal
+one and ends in seconds if signaling still says `offline`.
+
 ## Camera Awake reflects what the stream serves
 
 A snap camera's stream is in one of three states: idle (the server repeats

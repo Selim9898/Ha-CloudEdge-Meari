@@ -43,6 +43,7 @@ from .idle import IdleStillMixin
 from .iot import parse_capabilities
 from .motion import MotionEventListener
 from .muxer import FfmpegMuxer
+from .offline import CloudOfflineMixin
 from .state import CoordinatorStateMixin
 from .stream_server import StreamServer
 from .talk import TalkMixin
@@ -70,7 +71,11 @@ SNAPSHOT_CARD_REQUEST_TTL = 30.0
 
 
 class CloudEdgeMeariCoordinator(
-    TalkMixin, WatchWakeMixin, IdleStillMixin, CoordinatorStateMixin
+    TalkMixin,
+    WatchWakeMixin,
+    CloudOfflineMixin,
+    IdleStillMixin,
+    CoordinatorStateMixin,
 ):
     """Small runtime coordinator used by debug.py and camera entity."""
 
@@ -181,6 +186,8 @@ class CloudEdgeMeariCoordinator(
         self._keep_live_mux_on_restart = False
         self._p2p_video_frames = 0
         self._live_deadline = 0.0
+        self._idle_retry_s = IDLE_FRAME_RETRY_INITIAL_S
+        self._next_idle_grab = 0.0
         self._idle_video_frame: bytes | None = None
         self._idle_video_codec = self._video_codec
         self._idle_frame_lock = threading.Lock()
@@ -194,6 +201,7 @@ class CloudEdgeMeariCoordinator(
         self._vvp_quality: int | None = parse_quality_setting(device, quality_setting)
         self._init_watch_wake(entry.options if entry else None)
         self._init_talk()
+        self._init_cloud_offline()
         self._codec_params = CodecParameterCache()
         self._stream_started_keyframe = False
 
@@ -289,13 +297,18 @@ class CloudEdgeMeariCoordinator(
 
     def _snap_session_loop(self) -> None:
         self._poll_battery()
-        if self._initial_frame_grab and not self._idle_frame_ready.is_set():
-            self._run_initial_frame_grab()
+        if (
+            self._initial_frame_grab
+            and not self._idle_frame_ready.is_set()
+            and not self._cloud_offline
+            and not self._run_initial_frame_grab()
+        ):
+            self._note_idle_grab_failed(time.monotonic())
 
         last_battery_poll = time.monotonic()
         last_status_poll = time.monotonic()
-        idle_retry_s = IDLE_FRAME_RETRY_INITIAL_S
-        next_grab_retry = time.monotonic() + idle_retry_s
+        self._idle_retry_s = IDLE_FRAME_RETRY_INITIAL_S
+        self._next_idle_grab = time.monotonic() + self._idle_retry_s
         while self._running:
             now = time.monotonic()
             if now - last_battery_poll >= BATTERY_POLL_INTERVAL:
@@ -305,29 +318,7 @@ class CloudEdgeMeariCoordinator(
                 self._poll_status()
                 last_status_poll = now
 
-            if (
-                self._initial_frame_grab
-                and (
-                    self._idle_frame_refresh.is_set()
-                    or not self._idle_frame_ready.is_set()
-                )
-                and (self._idle_frame_refresh.is_set() or now >= next_grab_retry)
-            ):
-                self._idle_frame_refresh.clear()
-                if self._run_initial_frame_grab():
-                    self._stream_restart.clear()
-                    idle_retry_s = IDLE_FRAME_RETRY_INITIAL_S
-                else:
-                    _LOGGER.warning(
-                        "Idle frame unavailable for %s; retrying in %.0fs",
-                        self._sn_num,
-                        idle_retry_s,
-                    )
-                    idle_retry_s = min(
-                        IDLE_FRAME_RETRY_MAX_S,
-                        idle_retry_s * 1.5,
-                    )
-                next_grab_retry = time.monotonic() + idle_retry_s
+            self._maybe_grab_idle_frame(now)
 
             self._consume_wake_event()
             self._update_watch_wake(time.monotonic())
@@ -383,13 +374,54 @@ class CloudEdgeMeariCoordinator(
             if not worker.is_alive() and self._stream_thread is worker:
                 self._stream_thread = None
 
-    def _run_initial_frame_grab(self) -> bool:
-        self._frame_grab_active = True
+    def _maybe_grab_idle_frame(self, now: float) -> None:
+        """Grab the idle still when it is missing, backing off on failure.
+
+        While the cloud reports the camera offline the normal retry is
+        replaced by a wake-free probe on the offline backoff (``offline.py``).
+        A quality change (``_idle_frame_refresh``) always grabs at once.
+        """
+        refresh = self._idle_frame_refresh.is_set()
+        if not self._initial_frame_grab or not (
+            refresh or not self._idle_frame_ready.is_set()
+        ):
+            return
+        probe = False
+        if not refresh and (self._cloud_offline or now < self._next_idle_grab):
+            probe = self._cloud_offline and self._offline_probe_due(now)
+            if not probe:
+                return
+        self._idle_frame_refresh.clear()
+        if self._run_initial_frame_grab(wake=not probe):
+            self._stream_restart.clear()
+            self._idle_retry_s = IDLE_FRAME_RETRY_INITIAL_S
+        elif not self._note_idle_grab_failed(time.monotonic()):
+            _LOGGER.warning(
+                "Idle frame unavailable for %s; retrying in %.0fs",
+                self._sn_num,
+                self._idle_retry_s,
+            )
+            self._idle_retry_s = min(
+                IDLE_FRAME_RETRY_MAX_S,
+                self._idle_retry_s * 1.5,
+            )
+        self._next_idle_grab = time.monotonic() + self._idle_retry_s
+
+    def _run_initial_frame_grab(self, *, wake: bool = True) -> bool:
+        """Fetch one keyframe for the idle still.
+
+        ``wake=False`` is the offline probe: no coordinator wakes and no
+        Camera Awake flip; the engine still wakes a camera signaling reports
+        dormant. The grab ends early once a session reports the camera
+        offline, instead of waking it for the whole timeout.
+        """
+        self._frame_grab_active = wake
         self._set_session_active(True)
         self._refresh_camera_awake()
         self._idle_frame_ready.clear()
+        self._last_p2p_diagnostics = {}
         deadline = time.monotonic() + self._initial_grab_timeout
-        next_wake = 0.0
+        next_wake = 0.0 if wake else deadline
         next_stream = 0.0
         while self._running and time.monotonic() < deadline:
             now = time.monotonic()
@@ -397,10 +429,13 @@ class CloudEdgeMeariCoordinator(
                 self._send_wake()
                 next_wake = now + IDLE_GRAB_WAKE_RETRY_S
             worker = self._stream_thread
-            if (worker is None or not worker.is_alive()) and now >= next_stream:
-                self._stream_thread = None
-                self._start_streamer_once(grab_only=True)
-                next_stream = now + IDLE_GRAB_STREAM_RETRY_S
+            if worker is None or not worker.is_alive():
+                if self._signaling_device_status() == "offline":
+                    break
+                if now >= next_stream:
+                    self._stream_thread = None
+                    self._start_streamer_once(grab_only=True)
+                    next_stream = now + IDLE_GRAB_STREAM_RETRY_S
             if self._idle_frame_ready.wait(timeout=0.2):
                 break
         got_frame = self._idle_frame_ready.is_set()
@@ -632,6 +667,7 @@ class CloudEdgeMeariCoordinator(
             self._idle_video_frame = frame
             self._latest_video_kf = frame
         self._idle_frame_ready.set()
+        self._leave_cloud_offline("video received")
         self._maybe_convert_snapshot(codec, frame)
 
     def _maybe_convert_snapshot(self, codec: str, payload: bytes) -> None:
