@@ -1,4 +1,4 @@
-# Loox fork (branch `loox-dogan`)
+# Loox fork
 
 NoorIQ's test fork of [ajeanney/Ha-CloudEdge-Meari](https://github.com/ajeanney/Ha-CloudEdge-Meari)
 (MIT), used to run ieGeek battery cameras at one home through Home Assistant
@@ -7,18 +7,13 @@ Each change is a separate commit so it can go upstream as its own PR.
 
 ## Branches
 
-| Branch | Base | Purpose |
-|--------|------|---------|
-| `main` | `loox-dogan` | Fork default and what HACS installs: the build on the Pi at the test home. Fast-forwarded from `loox-dogan` once a build runs there. |
-| `loox-dogan` | upstream `main` + fork commits | Where work lands first. |
-| `fix/webrtc-provider-after-stream-start` | upstream `main` | [#57](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/57): `207256e` + `c50d19c` |
-| `fix/http-stream-source` | upstream `main` | [#58](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/58): `7b083fe` |
+`main` is the only long-lived branch. It is the fork default and what HACS
+installs: the build on the Pi at the test home.
 
-Work lands on `loox-dogan` first. A change offered upstream gets its own
-branch off upstream `main`, and later review fixes are cherry-picked onto
-that branch too. Once upstream merges a PR, upstream `main` is merged into
-`loox-dogan` (not rebased, so `main` keeps fast-forwarding) and the PR
-branch is deleted.
+Fixes land through short-lived PR branches into `main`, deleted on merge.
+A change offered upstream gets its own branch off upstream `main`, and later
+review fixes are cherry-picked onto it too; that branch is deleted once
+upstream merges the PR. Upstream `main` is merged into `main`, not rebased.
 
 ## How it differs from upstream
 
@@ -26,7 +21,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 
 | Commit | What | Upstream |
 |--------|------|----------|
-| `207256e` | fix(camera): offer WebRTC once the stream server has a port | Open PR #57 |
+| `207256e` | fix(camera): offer WebRTC once the stream server has a port | Merged upstream ([#57](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/57)) |
 | `b95dae9` | fix(awake): Camera Awake reports live frames, not wake requests; `live_until` attribute | Not yet offered |
 | `1d59d87` | feat(stream): wake when watched, capped per viewing session, plus a config switch and options | Not yet offered |
 | `ffb0a2f` | LOOX-FORK.md | Fork only |
@@ -35,7 +30,7 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `6e67e26` | fix(watch-wake): sticky cap, rolling hourly budget, state survives reloads | Fold into the wake-on-watch PR |
 | `b5eae08` | fix(watch-wake): default cap 5 min; viewer hold times documented (HLS figure corrected later) | Fold into the wake-on-watch PR |
 | `277304b` | fix(awake): `live_until` stored as a whole-second wall clock | Fold into the awake PR |
-| `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | In PR #57 |
+| `c50d19c` | fix(camera): side-effect-free port read, tracked refresh task | Merged upstream (#57) |
 | `c096f28` | docs(fork): commit table | Fork only |
 | `8def0f6` | fix(watch-wake): 90 s keep-alive wake (removed in `32ac655`); idle still over stalls | Fold into the wake-on-watch PR |
 | `a0fbff5` | docs(watch-wake): HLS idle timeout is 30 s | Fold into the wake-on-watch PR |
@@ -55,12 +50,12 @@ Based on upstream `v0.3.3` (5bc9f97). On top of that:
 | `99e1a0b` | fix(watch-wake): recovery wake when a watched live session stalls | Fold into the wake-on-watch PR |
 | `5399775` | fix(talk): budget refusal, 5 min talk per hour, 60 s per live view | Talk PR |
 | `e1b1d0b` | fix(signaling): read keep-alive replies whole or reset the connection | With `94e1ece` |
-| `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Open PR #58 (HA + go2rtc 1.9.14 bug) |
+| `7b083fe` | fix(stream): serve MPEG-TS over HTTP so go2rtc reports a producer url; WebRTC offers stop failing | Merged upstream ([#58](https://github.com/ajeanney/Ha-CloudEdge-Meari/pull/58); HA + go2rtc 1.9.14 bug) |
 | `fd8e5d5` + `a3c310e` | fix(motion): no false motion at midnight (day rollover replayed the summary's last event) | Not yet offered |
 | `43b4f0e` + `3a59d93` + `873d4de` | feat(switch): Lamp switch from the floodlight capability or linkage; Siren switch on IoT 182, usable before the camera reports it; both added when the status poll first reports them | Not yet offered |
 | `13ce854` | fix(switch): Siren writes IoT 823 (manual siren) instead of 182 (sound/light alarm on detection); same entity id | Not yet offered |
-| `cfa5517` | fix(motion): event poll retries with backoff until the cloud answers; the poll thread can't die; outage backlog not fired as motion | Not yet offered |
-| `95099e2` | fix(idle): no idle-still wakes while signaling says the camera is offline; probes back off 5 min to 2 h | Not yet offered |
+| `cfa5517` + `25a7868` | fix(motion): event poll retries with backoff until the cloud answers; the poll thread can't die; outage backlog not fired as motion | Not yet offered |
+| `95099e2` + `dfc9f3f` | fix(idle): no idle-still wakes while signaling says the camera is offline; probes back off 5 min to 2 h; the strongest status across signaling servers counts | Not yet offered |
 
 Behaviour details are in [docs/streaming.md](docs/streaming.md) (sections
 "Camera Awake reflects what the stream serves", "Wake when watched" and
@@ -143,8 +138,7 @@ the tone is quiet. PPCS cameras are not supported.
 1. HACS → ⋮ → *Custom repositories* → add
    `https://github.com/Selim9898/Ha-CloudEdge-Meari`, type *Integration*.
 2. Open the repository and choose *Download*. HACS installs the default
-   branch, `main`. To try an untested `loox-dogan` build, pick it under
-   *Need a different version?* if HACS lists it.
+   branch, `main`.
 3. Restart Home Assistant.
 
 If upstream `cloudplus` is already installed through HACS, remove it first.
@@ -154,7 +148,7 @@ the swap.
 
 **Manual copy**
 
-Copy `custom_components/cloudplus/` from this branch to
+Copy `custom_components/cloudplus/` from `main` to
 `/config/custom_components/cloudplus/` on the HA box, replacing the old
 folder, then restart HA.
 
