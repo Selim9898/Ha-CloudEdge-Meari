@@ -267,8 +267,7 @@ class MotionEventListener:
         #
         # Any failure, of any type, is retried: this thread is the only motion
         # path when MQTT is down, and it is only restarted when the camera's
-        # session restarts. An exception escaping here (a malformed cloud reply
-        # during an outage, say) used to end motion until HA restarted.
+        # session restarts.
         seeded = False
         while not self._stop_poll.is_set():
             try:

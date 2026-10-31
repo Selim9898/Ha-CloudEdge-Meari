@@ -134,10 +134,7 @@ Failures back off and never end the poller:
   retries at the normal 15 s, when its login worked.
 - Every exception is caught at the poll thread's boundary, including from
   `login()`, which parses several cloud replies and can raise `TypeError`
-  or `AttributeError` on a degraded one. Before, anything outside
-  `OSError`/`RuntimeError`/`ValueError`/`KeyError` ended the thread, and
-  it was only restarted with the camera's session (in practice a reload
-  or an HA restart).
+  or `AttributeError` on a degraded one.
 - One warning per outage (`Motion event poll failed; retrying with backoff
   until it recovers`), one for its first failed login, debug after that,
   and one info line when a poll succeeds again (`Motion event poll
